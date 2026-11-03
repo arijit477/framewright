@@ -1,0 +1,34 @@
+{
+  "name": "framewright",
+  "private": true,
+  "description": "A fast, open-source, browser-based video editor.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:engine": "wasm-pack build crates/engine --target web --release --out-dir pkg --out-name engine",
+    "build:engine:dev": "wasm-pack build crates/engine --target web --dev --out-dir pkg --out-name engine",
+    "dev": "pnpm build:engine:dev && pnpm --filter @framewright/web dev",
+    "build": "pnpm build:engine && pnpm --filter @framewright/web build",
+    "preview": "pnpm --filter @framewright/web preview",
+    "test": "cargo test --workspace && pnpm --filter @framewright/web test",
+    "lint": "eslint . && cargo clippy --workspace --all-targets -- -D warnings",
+    "typecheck": "pnpm --filter @framewright/web typecheck",
+    "format": "prettier --write . && cargo fmt --all",
+    "format:check": "prettier --check . && cargo fmt --all --check",
+    "test:e2e": "pnpm --filter @framewright/web test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

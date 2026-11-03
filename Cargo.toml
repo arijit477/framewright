@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/engine"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/arijit477/framewright"
+
+[profile.release]
+# Small, fast WASM: optimise aggressively and strip debug info.
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

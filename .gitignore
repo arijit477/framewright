@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+crates/engine/pkg/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+apps/web/e2e/.fixtures/
