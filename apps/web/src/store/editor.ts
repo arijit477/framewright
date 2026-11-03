@@ -4,6 +4,7 @@ import { TimelineEngine } from '../engine/engine';
 import { clipEnd, type Clip, type TimelineSnapshot } from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
+import { ThumbnailClient } from '../thumbnails/client';
 import type { ProjectAsset } from '../project/document';
 import type { RendererBackend } from '../render/protocol';
 import type { View } from '../timeline/geometry';
@@ -23,6 +24,8 @@ export interface EditorState {
   assets: Record<string, EditorAsset>;
   /** Waveform peaks per asset (see audio/protocol.ts PEAKS_PER_SECOND). */
   peaks: Record<string, Float32Array>;
+  /** Bumped when thumbnails arrive; the bitmaps themselves live in `thumbnails`. */
+  thumbsVersion: number;
   playhead: number;
   playing: boolean;
   selectedClipId: number | null;
@@ -43,6 +46,7 @@ export const useEditor = create<EditorState>(() => ({
   duration: 0,
   assets: {},
   peaks: {},
+  thumbsVersion: 0,
   playhead: 0,
   playing: false,
   selectedClipId: null,
@@ -65,6 +69,8 @@ export const renderer = new RenderClient();
 renderer.onStats((stats) => set({ backend: stats.backend, lastFrameMs: stats.lastFrameMs }));
 export const audio = new AudioOutput();
 audio.onPeaks((id, data) => set((s) => ({ peaks: { ...s.peaks, [id]: data } })));
+export const thumbnails = new ThumbnailClient();
+thumbnails.onUpdate(() => set((s) => ({ thumbsVersion: s.thumbsVersion + 1 })));
 
 /** Source files by asset id, kept so exports can re-read the media. */
 const assetFiles = new Map<string, File>();
@@ -188,6 +194,7 @@ async function probeAsset(id: string, file: File): Promise<EditorAsset> {
     }),
   ]);
   if (!visual.hasVideo && !sound.hasAudio) throw new Error('no playable video or audio found');
+  if (visual.hasVideo) thumbnails.request(id, file);
   return {
     id,
     name: file.name,
@@ -283,6 +290,7 @@ export async function loadProject(project: {
   pause();
   renderer.clearAssets();
   audio.clearAssets();
+  thumbnails.clear();
   assetFiles.clear();
   undoStack.length = 0;
   redoStack.length = 0;

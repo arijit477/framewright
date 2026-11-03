@@ -63,6 +63,37 @@ export class EditorPage {
     return Number(/scaleX\(([\d.e-]+)\)/.exec(transform)?.[1] ?? 0);
   }
 
+  /**
+   * Number of distinct colours drawn across a clip's middle row on the
+   * timeline canvas, between two times. A plain clip has very few; a filmstrip
+   * of the test pattern has many. Reads the actual pixels, so it checks what
+   * the user sees.
+   */
+  async clipColors(trackIndex: number, fromSeconds: number, toSeconds: number): Promise<number> {
+    const y =
+      RULER_HEIGHT + TRACK_GAP + trackIndex * (TRACK_HEIGHT + TRACK_GAP) + TRACK_HEIGHT * 0.45;
+    return this.timeline.evaluate(
+      (canvas, { x0, x1, y }) => {
+        const c = canvas as HTMLCanvasElement;
+        const scale = c.width / c.clientWidth;
+        const ctx = c.getContext('2d')!;
+        const row = ctx.getImageData(
+          Math.round(x0 * scale),
+          Math.round(y * scale),
+          Math.round((x1 - x0) * scale),
+          1,
+        ).data;
+        const colours = new Set<number>();
+        // Quantize to 4 bits per channel so anti-aliasing doesn't inflate the count.
+        for (let i = 0; i < row.length; i += 4) {
+          colours.add(((row[i]! >> 4) << 8) | ((row[i + 1]! >> 4) << 4) | (row[i + 2]! >> 4));
+        }
+        return colours.size;
+      },
+      { x0: this.xAt(fromSeconds), x1: this.xAt(toSeconds), y },
+    );
+  }
+
   async openExport() {
     await this.press('Control+e');
     await expect(this.page.locator('dialog[open] form')).toBeVisible();

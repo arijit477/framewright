@@ -2,7 +2,17 @@ import { useCallback, useEffect, useRef } from 'react';
 import { clipEnd, type Clip } from '../engine/types';
 import { PEAKS_PER_SECOND } from '../audio/protocol';
 import { formatTimecode, MICROS_PER_SECOND, rulerStep } from '../lib/time';
-import { edit, seek, selectClip, setView, useEditor, type EditorState } from '../store/editor';
+import {
+  edit,
+  seek,
+  selectClip,
+  setView,
+  thumbnails,
+  useEditor,
+  type EditorState,
+} from '../store/editor';
+import type { ThumbnailStrip } from '../thumbnails/client';
+import { indexAt, layoutTiles, nearestLoaded } from '../thumbnails/strip';
 import {
   hitTest,
   peakToHeight,
@@ -291,6 +301,22 @@ function paint(
             : COLORS.clip;
       roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
       ctx.fill();
+      // Source time follows the clip while it is being dragged.
+      const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
+      const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin);
+      const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
+      const filmstrip = strip !== undefined && strip.loaded > 0;
+      if (filmstrip) {
+        drawFilmstrip(ctx, strip, {
+          left,
+          right,
+          top: top + 2,
+          height: TRACK_HEIGHT - 4,
+          viewportWidth: width,
+          sourceAtX,
+          selected,
+        });
+      }
       if (selected) {
         ctx.fillStyle = COLORS.handle;
         ctx.fillRect(left + 2, top + 14, 3, TRACK_HEIGHT - 28);
@@ -300,15 +326,14 @@ function paint(
       ctx.beginPath();
       ctx.rect(left + 8, top, Math.max(0, right - left - 16), TRACK_HEIGHT);
       ctx.clip();
-      // Waveform in the lower band. Its source mapping follows the clip while dragging.
+      // Waveform: a slim band under the filmstrip, or the lower half of a plain clip.
       const clipPeaks = peaks[clip.assetId];
       if (clipPeaks) {
-        const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
         drawWaveform(ctx, clipPeaks, {
           left: Math.max(left, 0),
           right: Math.min(right, width),
-          top: top + 26,
-          height: TRACK_HEIGHT - 32,
+          top: filmstrip ? top + TRACK_HEIGHT - 19 : top + 26,
+          height: filmstrip ? 14 : TRACK_HEIGHT - 32,
           view,
           sourceAt: (t) => clip.sourceIn + (t - origin),
           gain: clip.volumePercent / 100,
@@ -324,7 +349,12 @@ function paint(
           : clip.volumePercent !== 100
             ? `  ·  ${clip.volumePercent}%`
             : '';
-      ctx.fillText(`${assets[clip.assetId]?.name ?? 'Clip'}${status}`, left + 10, top + 15);
+      // Pin the label to the visible part of the clip, so it stays readable when scrolled.
+      ctx.fillText(
+        `${assets[clip.assetId]?.name ?? 'Clip'}${status}`,
+        Math.max(left, 0) + 10,
+        top + 15,
+      );
       ctx.fillStyle = 'rgba(238,240,255,0.7)';
       ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'right';
@@ -392,5 +422,60 @@ function drawWaveform(ctx: CanvasRenderingContext2D, peaks: Float32Array, area: 
       peak = Math.max(peak, peaks[i]!);
     const h = Math.max(1, peakToHeight(peak * area.gain) * area.height);
     ctx.fillRect(x, mid - h / 2, 1, h);
+  }
+}
+
+interface FilmstripArea {
+  left: number;
+  right: number;
+  top: number;
+  height: number;
+  viewportWidth: number;
+  /** Source time (µs) shown at a given x. */
+  sourceAtX: (x: number) => number;
+  selected: boolean;
+}
+
+/**
+ * Tile a clip with thumbnails (only the visible tiles), using the nearest
+ * loaded one while the strip is still filling in, then shade the top and
+ * bottom so the name and waveform stay legible.
+ */
+function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, area: FilmstripArea) {
+  const { left, right, top, height } = area;
+  const tileWidth = (height * strip.width) / strip.height;
+  ctx.save();
+  roundRect(ctx, left, top, right - left, height, 6);
+  ctx.clip();
+  ctx.imageSmoothingQuality = 'high';
+  for (const tile of layoutTiles({
+    clipLeft: left,
+    clipRight: right,
+    tileWidth,
+    viewportWidth: area.viewportWidth,
+    sourceAt: area.sourceAtX,
+  })) {
+    const index = nearestLoaded(
+      indexAt(tile.sourceUs, strip.intervalUs, strip.count),
+      (i) => strip.bitmaps[i] !== undefined,
+      strip.count,
+    );
+    const bitmap = index >= 0 ? strip.bitmaps[index] : undefined;
+    if (bitmap) ctx.drawImage(bitmap, tile.x, top, tileWidth, height);
+  }
+  const shadeTop = ctx.createLinearGradient(0, top, 0, top + 22);
+  shadeTop.addColorStop(0, 'rgba(0,0,0,0.6)');
+  shadeTop.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shadeTop;
+  ctx.fillRect(left, top, right - left, 22);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(left, top + height - 18, right - left, 18);
+  ctx.restore();
+  if (area.selected) {
+    ctx.strokeStyle = COLORS.clipSelected;
+    ctx.lineWidth = 2;
+    roundRect(ctx, left + 1, top + 1, right - left - 2, height - 2, 5);
+    ctx.stroke();
+    ctx.lineWidth = 1;
   }
 }
