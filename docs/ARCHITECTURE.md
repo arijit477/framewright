@@ -288,7 +288,7 @@ three on every pull request. See [CONTRIBUTING.md](../CONTRIBUTING.md#testing).
 The app is served with `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`. That enables `SharedArrayBuffer` (needed for the
 audio ring buffer and zero-copy worker messaging in later phases). It is configured for the
-Vite dev/preview servers, Vercel (`vercel.json`) and Netlify/Cloudflare Pages (`public/_headers`).
+Vite dev/preview servers, Vercel (root `vercel.json`) and Netlify/Cloudflare Pages (`public/_headers`).
 
 ## Planned subsystems
 
