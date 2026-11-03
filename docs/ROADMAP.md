@@ -27,7 +27,9 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Export benchmark vs FFmpeg.wasm in the README
 - [ ] WebGPU compositing for export (currently Canvas 2D; see ADR 0006)
 - [ ] Multiple video tracks: add/remove tracks, drag clips between tracks
-- [ ] Clip thumbnails on the timeline (generated in a worker, cached)
+- [x] Clip thumbnails on the timeline (filmstrip generated in a dedicated worker)
+- [ ] Cache thumbnails in project storage so reloads don't regenerate them
+- [ ] Finer thumbnail levels when zoomed far in
 - [x] Save/load projects (OPFS); autosave; relink missing media
 - [x] Projects dialog: new, open, rename, delete; one tab per project (Web Locks)
 - [x] Project backups (`.framewright` = standard ZIP with media): download, import, drag-and-drop

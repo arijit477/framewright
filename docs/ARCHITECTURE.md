@@ -177,6 +177,27 @@ project JSON ─▶ TimelineEngine (own WASM instance in the worker)
   social-media lengths. Long 4K exports should stream to disk (roadmap). Export composites with
   Canvas 2D (see the ADR for why).
 
+## Timeline thumbnails
+
+Video clips show a filmstrip (`apps/web/src/thumbnails`):
+
+- A **dedicated thumbnail worker** with its own decoders, so generating thumbnails never competes
+  with preview scrubbing. It handles one asset at a time, bounding CPU and memory during big
+  imports.
+- **Plan** (`strip.ts`, unit-tested): one thumbnail per second of source, at most 240 per asset
+  (wider intervals for long media). Each is taken from the middle of the span it represents, at
+  72 px tall (about 128×72), which is under 9 MB per asset.
+- **Progressive:** a coarse pass (every 8th thumbnail) and then the gaps; each pass is ascending,
+  so the decoder only moves forward. mediabunny's `CanvasSink` decodes and scales; results reach
+  the main thread as transferable `ImageBitmap`s in batches of about 150 ms.
+- **Correctness:** every request carries a job number that the worker echoes, and replies from a
+  replaced request (e.g. after relinking) are discarded and their bitmaps closed. Bitmaps are
+  GPU resources, so they live in `ThumbnailClient` (not React state) and are closed when an
+  asset or project goes away; a `thumbsVersion` counter in the store triggers redraws.
+- **Drawing:** tiles are laid from each clip's left edge (stable while scrolling), only the visible
+  ones are drawn, and each uses the nearest loaded thumbnail while the strip fills in. Gradients
+  keep the name and waveform legible, and the label is pinned to the clip's visible edge.
+
 ## Projects and persistence
 
 Projects are stored in the browser's **Origin Private File System** (`apps/web/src/project`,
