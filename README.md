@@ -21,6 +21,8 @@ leaves your machine.
 - Frame-accurate preview, rendered off the main thread
 - Projects saved automatically in the browser, media included; reopen, rename, delete and relink
   missing media
+- Backups: download any project as a `.framewright` file (a standard ZIP with your original
+  media) and import it in any browser or on another computer
 - Undo/redo for every edit
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
   <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove, <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
