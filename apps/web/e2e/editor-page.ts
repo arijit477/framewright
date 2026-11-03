@@ -136,6 +136,24 @@ export class EditorPage {
     await expect(this.page.locator('.project-name')).toContainText(name);
   }
 
+  /** Download the current project's backup into `dir`; returns the file path. */
+  async downloadBackup(dir: string) {
+    const dialog = await this.openProjects();
+    const [download] = await Promise.all([
+      this.page.waitForEvent('download'),
+      dialog.getByRole('button', { name: 'Download backup' }).click(),
+    ]);
+    const path = `${dir}/${download.suggestedFilename()}`;
+    await download.saveAs(path);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    return path;
+  }
+
+  async importBackup(path: string) {
+    const dialog = await this.openProjects();
+    await dialog.getByLabel('Choose a backup file').setInputFiles(path);
+  }
+
   async reload() {
     await this.page.reload();
     await expect(this.page.getByRole('button', { name: 'Import' })).toBeVisible({

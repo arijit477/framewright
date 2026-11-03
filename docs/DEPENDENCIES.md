@@ -10,6 +10,7 @@ the app.** Check this table before adding a package, and add a row in the same P
 | `react`, `react-dom` | 19.3      | MIT     | UI framework. Familiar to contributors; the hot paths (timeline, preview) bypass React and draw on canvases.                                                                   |
 | `zustand`            | 5.0       | MIT     | Small store that can be read and subscribed to outside React (playback loop, canvas timeline) without re-rendering.                                                            |
 | `mediabunny`         | 1.65      | MPL-2.0 | Pure-TS demuxing/muxing for MP4, WebM, MOV and MKV, and a WebCodecs-backed decoder API. MPL-2.0 is file-level copyleft: using it unmodified places no obligations on our code. |
+| `client-zip`         | 2.5       | MIT     | Streams project backups as ZIP (with ZIP64 for files over 4 GB) without holding them in memory. Writing only; reading uses our own `zip-reader.ts`.                            |
 | `framewright-engine` | workspace | MIT     | Our Rust engine, compiled to WASM.                                                                                                                                             |
 
 ### Rust crates (`crates/engine`)

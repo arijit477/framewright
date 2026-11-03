@@ -1,4 +1,5 @@
 import type { AudioCodec, VideoCodec } from 'mediabunny';
+import { slugify } from '../lib/slug';
 
 /**
  * Export settings and the pure maths around them. No browser APIs here, so
@@ -93,15 +94,7 @@ export function estimateBytes(durationUs: number, settings: ExportSettings, hasA
 
 /** A safe, descriptive file name such as `holiday-1080p30.mp4`. */
 export function exportFileName(baseName: string, settings: ExportSettings): string {
-  const stem =
-    baseName
-      .replace(/\.[a-z0-9]{1,5}$/i, '') // drop the source extension
-      .normalize('NFKD')
-      .replace(/[^\w\s-]/g, '')
-      .trim()
-      .replace(/[\s_]+/g, '-')
-      .toLowerCase()
-      .slice(0, 60) || 'framewright-export';
+  const stem = slugify(baseName, 'framewright-export');
   return `${stem}-${settings.resolution}${settings.fps}.${FORMATS[settings.format].extension}`;
 }
 

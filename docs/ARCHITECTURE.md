@@ -207,6 +207,30 @@ timeline, assets }`. Parsing validates every field. Older versions are upgraded 
   `[A-Za-z0-9_-]{1,64}`. Persistent storage is requested on the first save so the browser is less
   likely to evict projects.
 
+### Backups
+
+A backup (`apps/web/src/project/backup.ts`) is a **standard ZIP** with the `.framewright`
+extension, so any unzip tool can open it and users never lose access to their media:
+
+```
+project.json                         the project document (same format as storage)
+README.txt                           what this file is and how to restore it
+media/<assetId>/<original file name>  the original media, stored uncompressed
+```
+
+- **Writing** streams with `client-zip`, reading media lazily from OPFS. On Chrome and Edge it
+  pipes straight into a file chosen with the Save dialog; elsewhere it builds a Blob (which
+  browsers back with disk) and downloads it.
+- **Reading** uses our own `zip-reader.ts`. It loads only the central directory; media entries
+  are `Blob.slice()`s of the backup file, streamed into OPFS without being held in memory. It
+  supports stored and deflated entries and ZIP64, checks every offset against the real file
+  size, verifies the CRC of `project.json`, and refuses encrypted or unknown entries.
+- **Import never overwrites:** a backup becomes a new project with a new id, and a numbered name
+  if the name is taken. Media is written first and the document last, so the project only
+  appears once complete; any failure removes what was written.
+- Media whose size doesn't match the document is treated as damaged and imports as missing
+  (relinkable) rather than playing corrupt data.
+
 ## Testing strategy
 
 Engine rules are tested in Rust, pure TypeScript logic with Vitest, and user flows with

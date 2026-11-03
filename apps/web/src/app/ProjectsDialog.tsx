@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatBytes, formatSeconds } from '../export/settings';
 import { formatRelative } from '../lib/time';
+import { BACKUP_EXTENSION } from '../project/backup';
 import { MAX_NAME_LENGTH } from '../project/document';
 import {
   closeProjectsDialog,
   deleteProject,
+  downloadBackup,
+  importBackup,
   newProject,
   openProject,
   openProjectsDialog,
@@ -83,6 +86,8 @@ function ProjectsBody() {
   const projects = useProject((s) => s.projects);
   const persistent = useProject((s) => s.persistent);
   const storage = useProject((s) => s.storage);
+  const busy = useProject((s) => s.busy);
+  const importInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const others = projects.filter((p) => p.id !== current?.id);
 
@@ -106,12 +111,44 @@ function ProjectsBody() {
           />
         </label>
       )}
+      {current && persistent && (
+        <div className="project-backup">
+          <span className="muted">Keep a copy, or move it to another browser or computer:</span>
+          <button onClick={() => void downloadBackup(current.id)} disabled={busy !== null}>
+            Download backup
+          </button>
+        </div>
+      )}
+      {busy && (
+        <p className="project-busy" aria-live="polite">
+          {busy}
+        </p>
+      )}
 
       <div className="project-list-header">
         <h3>{others.length > 0 ? 'Other projects' : 'No other projects yet'}</h3>
-        <button className="primary" onClick={() => void newProject()}>
-          New project
-        </button>
+        <div className="group">
+          {persistent && (
+            <button onClick={() => importInput.current?.click()} disabled={busy !== null}>
+              Import backup…
+            </button>
+          )}
+          <button className="primary" onClick={() => void newProject()}>
+            New project
+          </button>
+        </div>
+        <input
+          ref={importInput}
+          type="file"
+          accept={`${BACKUP_EXTENSION},.zip`}
+          hidden
+          aria-label="Choose a backup file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void importBackup(file);
+            e.target.value = '';
+          }}
+        />
       </div>
 
       {others.length > 0 && (
@@ -143,6 +180,13 @@ function ProjectsBody() {
                   <button onClick={() => setConfirming(p.id)} aria-label={`Delete ${p.name}`}>
                     Delete
                   </button>
+                  <button
+                    onClick={() => void downloadBackup(p.id)}
+                    disabled={busy !== null}
+                    aria-label={`Back up ${p.name}`}
+                  >
+                    Back up
+                  </button>
                   <button onClick={() => void openProject(p.id)} aria-label={`Open ${p.name}`}>
                     Open
                   </button>
@@ -157,7 +201,7 @@ function ProjectsBody() {
         {persistent
           ? `Projects and their media are stored in this browser${
               storage ? ` (${formatBytes(storage.usage)} used)` : ''
-            }. Clearing site data deletes them.`
+            }. Clearing site data deletes them, so download a backup of anything important.`
           : 'This browser can’t store projects; export your video before closing the tab.'}
       </p>
 

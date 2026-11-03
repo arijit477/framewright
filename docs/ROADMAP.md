@@ -30,7 +30,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Clip thumbnails on the timeline (generated in a worker, cached)
 - [x] Save/load projects (OPFS); autosave; relink missing media
 - [x] Projects dialog: new, open, rename, delete; one tab per project (Web Locks)
-- [ ] Export/import a project file to move projects between browsers or machines
+- [x] Project backups (`.framewright` = standard ZIP with media): download, import, drag-and-drop
 - [ ] Undo history that survives a reload
 - [ ] Image clips (PNG/JPG) with a default duration
 - [x] Playwright end-to-end tests in CI with generated fixtures, exports validated by ffprobe
