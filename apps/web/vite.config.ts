@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 /**
  * Cross-origin isolation unlocks SharedArrayBuffer and high-resolution timers,
  * which the render and audio threads rely on. Every host must send these
- * headers too (see vercel.json and public/_headers).
+ * headers too (see the root vercel.json and public/_headers).
  */
 const crossOriginIsolation = {
   'Cross-Origin-Opener-Policy': 'same-origin',
