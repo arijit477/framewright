@@ -28,7 +28,10 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] WebGPU compositing for export (currently Canvas 2D; see ADR 0006)
 - [ ] Multiple video tracks: add/remove tracks, drag clips between tracks
 - [ ] Clip thumbnails on the timeline (generated in a worker, cached)
-- [ ] Save/load projects (OPFS); autosave; relink missing media
+- [x] Save/load projects (OPFS); autosave; relink missing media
+- [x] Projects dialog: new, open, rename, delete; one tab per project (Web Locks)
+- [ ] Export/import a project file to move projects between browsers or machines
+- [ ] Undo history that survives a reload
 - [ ] Image clips (PNG/JPG) with a default duration
 - [x] Playwright end-to-end tests in CI with generated fixtures, exports validated by ffprobe
 - [ ] Deploy to Vercel; live demo link in README

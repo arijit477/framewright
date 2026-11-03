@@ -19,13 +19,15 @@ leaves your machine.
   time in the background, with progress, ETA and cancel
 - Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom
 - Frame-accurate preview, rendered off the main thread
+- Projects saved automatically in the browser, media included; reopen, rename, delete and relink
+  missing media
 - Undo/redo for every edit
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
   <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove, <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
-  <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
+  <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: multiple tracks, thumbnails, saving projects, text, transitions, and local
+Coming next: multiple tracks, thumbnails, text, transitions, and local
 AI auto-captions.
 
 ## Architecture at a glance

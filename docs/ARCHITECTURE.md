@@ -177,6 +177,36 @@ project JSON ─▶ TimelineEngine (own WASM instance in the worker)
   social-media lengths. Long 4K exports should stream to disk (roadmap). Export composites with
   Canvas 2D (see the ADR for why).
 
+## Projects and persistence
+
+Projects are stored in the browser's **Origin Private File System** (`apps/web/src/project`,
+`apps/web/src/store/project.ts`). See [ADR 0007](./adr/0007-project-storage.md).
+
+```
+projects/<projectId>/project.json        versioned document (timeline + media metadata)
+projects/<projectId>/media/<assetId>     a copy of every imported file
+```
+
+- **Document format** (`document.ts`): `{ format, version, id, name, timestamps, durationUs,
+timeline, assets }`. Parsing validates every field. Older versions are upgraded by
+  step-by-step migrations; documents from a _newer_ app are refused with a clear message instead
+  of being misread. The engine validates the timeline again on load, and a bad project never
+  replaces the open one.
+- **Autosave** (`save-scheduler.ts`): every edit, undo, import and rename marks the project dirty;
+  it's written 800 ms after the last change. Saves never overlap, a change during a save causes one
+  more save, and failures show "Couldn't save · Retry". It also saves when the tab is hidden and
+  warns on close with unsaved changes. <kbd>Ctrl+S</kbd> saves immediately.
+- **Atomic writes:** `createWritable()` writes a temporary file and swaps it in on `close()`, so a
+  crash mid-save keeps the previous version.
+- **Media copies:** imports are streamed into the project folder in the background. If a copy is
+  missing (storage evicted, disk full), its clips stay on the timeline, shown red, black and
+  silent, and a banner offers **Relink**, which matches chosen files by name and size.
+- **One tab per project:** an exclusive Web Lock is held while a project is open. A second tab
+  opens a different project instead of overwriting the first one's work.
+- **Safety:** project and asset ids become directory names, so they must match
+  `[A-Za-z0-9_-]{1,64}`. Persistent storage is requested on the first save so the browser is less
+  likely to evict projects.
+
 ## Testing strategy
 
 Engine rules are tested in Rust, pure TypeScript logic with Vitest, and user flows with
