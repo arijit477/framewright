@@ -1,0 +1,201 @@
+# Architecture
+
+Framewright is a browser-based, multi-track video editor. This document explains
+how it is put together and why. Decisions with real trade-offs are recorded as
+ADRs in [`docs/adr`](./adr).
+
+## Goals
+
+1. **Fast**: 60 fps scrubbing and playback on a mid-range laptop at 1080p.
+2. **Private**: media never leaves the user's device unless they choose to upload it.
+3. **Portable core**: the same engine runs in the browser (WASM) and natively (desktop, later).
+4. **Approachable codebase**: clear module boundaries so contributors can add an effect
+   without understanding the whole system.
+
+## System overview
+
+```
+ Main thread (UI only)                Render worker                         GPU
+┌───────────────────────────┐   ┌─────────────────────────────────┐   ┌──────────────┐
+│ React UI (toolbar, panels)│   │ Asset registry (mediabunny)     │   │ WebGPU       │
+│ Canvas timeline           │   │  demux MP4/WebM/MOV/MKV         │   │  compositing │
+│ Zustand store             │   │ FrameReader per asset           │   │  effects     │
+│ TimelineEngine (Rust/WASM)│──▶│  WebCodecs hardware decode      │──▶│  (Canvas 2D  │
+│  - project model          │   │ Compositor                      │   │   fallback)  │
+│  - edits + validation     │◀──│  draws layers bottom→top        │   └──────────────┘
+│  - resolve(t) → layers    │   └─────────────────────────────────┘
+└───────────────────────────┘
+        │                        ┌─────────────────────────────────┐   ┌──────────────┐
+        │ audio segments         │ Audio worker                    │   │ AudioWorklet │
+        └───────────────────────▶│  decode (WebCodecs) per clip    │──▶│  plays ring  │
+                                 │  resample → mix → ring buffer   │   │  buffer; its │
+          master clock ◀─────────│  waveform peaks                 │   │  READ index  │
+          (SharedArrayBuffer)    └─────────────────────────────────┘   │  is the clock│
+                                                                       └──────────────┘
+```
+
+### Data flow for one frame
+
+1. The playhead moves (playback tick, scrub, or keyboard step).
+2. The store calls `engine.resolve(t)`. The Rust engine binary-searches each track and
+   returns the visible **layers**: `{ assetId, sourceTime, trackIndex }`.
+3. The layers are posted to the render worker. **Only the newest request is kept**: if the
+   worker is busy, older requests are dropped. This makes scrubbing feel instant and lets
+   playback skip frames instead of drifting behind.
+4. The worker asks each asset's `FrameReader` for the frame at `sourceTime`.
+5. The compositor draws the frames into the `OffscreenCanvas`, which the browser displays
+   without a copy back to the main thread.
+
+## Modules
+
+| Path                    | Responsibility                                                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/engine`         | Rust. Project model (tracks, clips), edit operations with invariants, `resolve(t)`, JSON (de)serialisation. No browser APIs outside `wasm.rs`. |
+| `apps/web/src/engine`   | Typed TS facade over the WASM bindings, plus TS mirrors of the Rust types.                                                                     |
+| `apps/web/src/store`    | Zustand store: UI state, the undo/redo history, playback clock, and editing commands.                                                          |
+| `apps/web/src/render`   | Worker protocol, render worker, `FrameReader`, compositors.                                                                                    |
+| `apps/web/src/timeline` | Canvas timeline component and pure geometry (hit testing, snapping, time↔pixel).                                                               |
+| `apps/web/src/app`      | Top-level layout: preview, toolbar, keyboard shortcuts, drag-and-drop import.                                                                  |
+| `apps/web/src/lib`      | Small shared utilities (time/timecode maths).                                                                                                  |
+
+## Key design decisions
+
+### Time is integer microseconds
+
+WebCodecs timestamps are microseconds, and integers don't accumulate float error over long
+edits. Frame-based UI operations convert through `framesToMicros(n)` so repeated stepping
+never drifts. See [ADR 0001](./adr/0001-time-in-microseconds.md).
+
+### The engine owns the truth, in Rust
+
+All edits go through the engine, which enforces the invariants: no overlaps, a minimum clip
+length, and never referencing media outside the source. The UI can't put the project into an
+invalid state, and the rules are unit-tested once in Rust. See [ADR 0002](./adr/0002-rust-wasm-engine.md).
+
+### Decode with WebCodecs, not FFmpeg.wasm
+
+WebCodecs uses the device's hardware decoders and is far faster than FFmpeg compiled to
+WASM. It also avoids FFmpeg's GPL-licensed encoders, which keeps the project MIT. See
+[ADR 0003](./adr/0003-webcodecs-and-mediabunny.md).
+
+### Rendering happens in a worker
+
+Decoding and compositing never block input handling. The preview canvas is transferred to
+the worker (`transferControlToOffscreen`), so frames go decoder → GPU → screen with no
+main-thread involvement. See [ADR 0004](./adr/0004-render-in-worker.md).
+
+### WebGPU with a verified fallback
+
+On startup the WebGPU compositor draws a known red frame through the production shader and
+reads it back. If anything fails (no adapter, a driver that can't import video frames, a
+wrong colour), it falls back to Canvas 2D _before_ claiming the canvas, because a canvas with
+a `webgpu` context can never switch to `2d`.
+
+### Sequential decoding for playback, seeking for jumps
+
+`FrameReader` keeps one decoder iterator open while time moves forward (playback), and only
+restarts it (seeking to the nearest keyframe) on backward or large jumps. Decoders are
+expensive to seek and cheap to run forward.
+
+### Undo/redo by snapshots
+
+Each edit pushes the serialised timeline (`engine.save()`) onto a bounded stack. Timelines
+are small JSON documents, so this is simple and robust. If projects grow large, it can be
+swapped for a command log without touching UI code, because all edits go through `edit()`.
+
+### The timeline is a canvas
+
+DOM-based timelines slow down with thousands of clips and thumbnails. The canvas timeline
+draws only the visible range, and all hit testing is pure functions in `geometry.ts`, which
+makes it easy to unit-test.
+
+## Audio and the master clock
+
+Audio uses three threads that share memory through `SharedArrayBuffer`s
+(`apps/web/src/audio`). See [ADR 0005](./adr/0005-audio-master-clock.md) for the reasoning.
+
+1. **Engine:** `audioSegments(from, to)` returns every audible clip: video clips (their
+   embedded audio) and audio-track clips, skipping muted or 0% clips, each with its linear gain.
+2. **Audio worker:** keeps one decoder stream per audible clip, resamples each to 48 kHz
+   (`Resampler`, linear interpolation with a fractional position carried across chunks), mixes
+   them with their gain, and writes 1024-frame chunks into a lock-free ring buffer. It keeps
+   about 250 ms buffered, which is enough to absorb decode jitter but short enough that edits
+   are heard almost immediately.
+3. **AudioWorklet (`ring-player`):** on the real-time audio thread, copies 128 frames per
+   render quantum from the ring to the speakers. It never allocates, decodes or posts messages,
+   so it can't glitch. It also writes a decaying peak level for the level meter.
+
+**Ring buffer protocol** (`ring-buffer.ts`): the writer owns WRITE and the reader owns READ.
+Both only ever increase, so no locks are needed. To flush (seek, edit, stop), the writer
+publishes `SKIP_TO` plus a flag and the _reader_ jumps forward. That avoids two threads
+writing READ.
+
+**Master clock:** the writer anchors "frame index N = timeline time T" on every start and edit.
+The current time is `T + (READ − N) / sampleRate`, minus the output latency. The playback
+loop reads this clock on every animation frame and shows the matching video frame. Video
+therefore follows audio: if audio underruns, the clock pauses rather than letting picture and
+sound drift apart.
+
+**Edits during playback** send new segments; the worker re-anchors at the currently audible
+time and re-mixes, so a mute or volume change is heard within about 250 ms.
+
+**Fallbacks:** without cross-origin isolation, or if the audio output never starts (for example,
+autoplay is blocked or there's no output device), a watchdog switches to a wall clock after 1 s
+and tells the user that playback continues without sound.
+
+**Waveforms:** the audio worker decodes each asset once in the background and stores the peak
+amplitude per 10 ms. The timeline draws one bar per pixel on a decibel scale (−48 dB floor), so
+quiet recordings stay visible.
+
+## Export
+
+Export renders a **snapshot** of the project in a dedicated worker, using the same building
+blocks as the live preview, so the file matches what you saw (`apps/web/src/export`). See
+[ADR 0006](./adr/0006-export-pipeline.md).
+
+```
+project JSON ─▶ TimelineEngine (own WASM instance in the worker)
+                 ├─ resolve(t) per output frame ─▶ FrameReader ─▶ Compositor ─▶ CanvasSource ─┐
+                 └─ audioSegments() ─▶ Mixer (4096-frame chunks) ─▶ AudioSampleSource ────────┤
+                                                                     mediabunny muxer ◀──────┘
+                                                                     ─▶ MP4 / WebM buffer ─▶ download
+```
+
+- **Snapshot isolation:** the worker loads its own engine from `engine.save()` JSON. The user can
+  keep editing while it renders, and nothing they do can corrupt the export.
+- **One worker per export,** terminated when the job ends (done, error or cancel), so decoder and
+  encoder memory are always released.
+- **Codec selection:** `getFirstEncodableVideoCodec`/`AudioCodec` pick the first codec the
+  browser can actually encode at the chosen size and bitrate: H.264 then HEVC/AV1 for MP4,
+  VP9 then VP8/AV1 for WebM; AAC then Opus for MP4 audio. If no audio codec works, the
+  export is silent and the dialog warns.
+- **Timing:** frame _i_ is at `round(i × 10⁶ / fps)` µs, computed from the index; audio is mixed
+  up to the end of each video frame, so the muxer interleaves without buffering much.
+- **MP4 fast start:** the index (`moov`) is written before the media data, so files start
+  playing before they have fully downloaded.
+- **Limits today:** the file is assembled in memory (`BufferTarget`), which is fine for typical
+  social-media lengths. Long 4K exports should stream to disk (roadmap). Export composites with
+  Canvas 2D (see the ADR for why).
+
+## Testing strategy
+
+Engine rules are tested in Rust, pure TypeScript logic with Vitest, and user flows with
+Playwright against the production build. Exported files are validated independently with
+ffprobe/ffmpeg (codec, dimensions, exact frame count, clean decode, audio level). CI runs all
+three on every pull request. See [CONTRIBUTING.md](../CONTRIBUTING.md#testing).
+
+## Cross-origin isolation
+
+The app is served with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`. That enables `SharedArrayBuffer` (needed for the
+audio ring buffer and zero-copy worker messaging in later phases). It is configured for the
+Vite dev/preview servers, Vercel (`vercel.json`) and Netlify/Cloudflare Pages (`public/_headers`).
+
+## Planned subsystems
+
+- **Effects (Phase 2)**: WGSL fragment shaders registered as plugins with a typed parameter
+  schema, so the UI can generate controls automatically.
+- **Captions (Phase 3)**: Whisper running locally via transformers.js on WebGPU, producing
+  word-level timestamps.
+- **Desktop (later)**: Tauri 2 shell with the same React UI, the engine compiled natively, and
+  `wgpu` rendering, which runs the same WGSL shaders.

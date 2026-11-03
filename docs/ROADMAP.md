@@ -1,0 +1,68 @@
+# Roadmap
+
+Each phase ends with a tagged release, a demo GIF in the README, and measured performance
+numbers. Tick items off in PRs; bigger items get a GitHub issue.
+
+## Phase 0: Foundation ✅ (v0.0.1)
+
+- [x] Monorepo: Rust engine crate + Vite/React/TS web app, pnpm workspaces
+- [x] Timeline engine in Rust: tracks, clips, add/move/trim/split/remove, `resolve(t)`, JSON
+- [x] Unit tests for every edit invariant (Rust) and timeline geometry/timecode (Vitest)
+- [x] Render worker with OffscreenCanvas; WebCodecs decoding through mediabunny
+- [x] WebGPU compositor (zero-copy external textures) with self-test and Canvas 2D fallback
+- [x] Canvas timeline: scrub, select, drag to move, edge trimming, snapping, zoom, scroll
+- [x] Playback, frame stepping, split, delete, undo/redo, keyboard shortcuts, drag-and-drop import
+- [x] Cross-origin isolation headers; CI (fmt, clippy, tests, lint, typecheck, build)
+- [x] Architecture docs, ADRs, contributing guide, issue/PR templates
+
+## Phase 1: Usable MVP (v0.1.0)
+
+- [x] **Audio**: decode, AudioWorklet mixer, waveform drawing, per-clip volume and mute
+- [x] **Audio master clock** for A/V sync during playback
+- [x] Audio-only files (MP3, WAV, M4A, OGG, FLAC) on an audio track; output level meter
+- [ ] Short fades at clip edges to avoid clicks on hard cuts
+- [ ] Higher-quality resampling for export (windowed sinc)
+- [x] **Export** to MP4 (H.264 + AAC/Opus) and WebM (VP9/Opus): 480p–4K, 24–60 fps, progress, ETA, cancel
+- [ ] Stream large exports straight to disk (File System Access API) instead of memory
+- [ ] Export benchmark vs FFmpeg.wasm in the README
+- [ ] WebGPU compositing for export (currently Canvas 2D; see ADR 0006)
+- [ ] Multiple video tracks: add/remove tracks, drag clips between tracks
+- [ ] Clip thumbnails on the timeline (generated in a worker, cached)
+- [ ] Save/load projects (OPFS); autosave; relink missing media
+- [ ] Image clips (PNG/JPG) with a default duration
+- [x] Playwright end-to-end tests in CI with generated fixtures, exports validated by ffprobe
+- [ ] Deploy to Vercel; live demo link in README
+
+## Phase 2: Real editing (v0.2.0)
+
+- [ ] Text layers: font, size, colour, position, simple in/out animations
+- [ ] Transform: position, scale, rotation, opacity, with keyframes
+- [ ] Transitions: crossfade, slide, wipe (WGSL)
+- [ ] Filters: brightness/contrast/saturation, LUTs; plugin API for effects
+- [ ] Speed control (0.25×–4×) with audio pitch preservation
+- [ ] Ripple delete, magnetic timeline, multi-select, copy/paste
+- [ ] Proxy media for 4K sources
+
+## Phase 3: Smart features (v0.3.0)
+
+- [ ] Auto-captions with local Whisper (WebGPU), word highlighting, SRT export
+- [ ] Silence detection and one-click removal
+- [ ] Aspect-ratio presets (9:16, 1:1, 16:9) with smart reframing
+- [ ] Background removal (segmentation model, permissive licence only)
+- [ ] Templates
+
+## Phase 4: Desktop and polish (v1.0.0)
+
+- [ ] Tauri 2 desktop app reusing the UI; native engine; `wgpu` renderer
+- [ ] Native FFmpeg (LGPL build) for ProRes and other codecs browsers lack
+- [ ] Accessibility pass (keyboard-only editing, screen-reader labels)
+- [ ] Docs site with contributor guides for writing effects
+
+## Performance budget (tracked from Phase 1)
+
+| Metric                                       | Target                                |
+| -------------------------------------------- | ------------------------------------- |
+| Scrub latency (1080p H.264, hardware decode) | < 50 ms                               |
+| Playback                                     | 60 fps with 2 video layers at 1080p   |
+| Export 60 s of 1080p                         | < 15 s on a mid-range laptop          |
+| Initial JS (gzip)                            | < 150 kB, excluding the render worker |
