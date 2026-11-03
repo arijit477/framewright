@@ -19,6 +19,8 @@ leaves your machine.
   time in the background, with progress, ETA and cancel
 - Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom, with video
   thumbnails (filmstrip) on every clip
+- Multiple video and audio tracks: drag a clip above the top track for a new layer (B-roll,
+  cutaways); higher tracks cover lower ones
 - Frame-accurate preview, rendered off the main thread
 - Projects saved automatically in the browser, media included; reopen, rename, delete and relink
   missing media

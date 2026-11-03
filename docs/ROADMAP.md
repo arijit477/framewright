@@ -26,7 +26,9 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Stream large exports straight to disk (File System Access API) instead of memory
 - [ ] Export benchmark vs FFmpeg.wasm in the README
 - [ ] WebGPU compositing for export (currently Canvas 2D; see ADR 0006)
-- [ ] Multiple video tracks: add/remove tracks, drag clips between tracks
+- [x] Multiple video tracks: drag clips between tracks or onto a new track; empty tracks removed automatically
+- [x] Same file on several tracks decodes smoothly (decoder per file and track)
+- [x] Screen-reader description of the timeline (tracks and clips as text)
 - [x] Clip thumbnails on the timeline (filmstrip generated in a dedicated worker)
 - [ ] Cache thumbnails in project storage so reloads don't regenerate them
 - [ ] Finer thumbnail levels when zoomed far in

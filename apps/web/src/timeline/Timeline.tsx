@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { clipEnd, type Clip } from '../engine/types';
+import { clipEnd, type Clip, type Track, type TrackKind } from '../engine/types';
 import { PEAKS_PER_SECOND } from '../audio/protocol';
 import { formatTimecode, MICROS_PER_SECOND, rulerStep } from '../lib/time';
 import {
   edit,
+  moveClip,
   seek,
   selectClip,
   setView,
@@ -13,16 +14,21 @@ import {
 } from '../store/editor';
 import type { ThumbnailStrip } from '../thumbnails/client';
 import { indexAt, layoutTiles, nearestLoaded } from '../thumbnails/strip';
+import { TrackList } from './TrackList';
 import {
+  dropTarget,
   hitTest,
+  maxScrollY,
   peakToHeight,
   RULER_HEIGHT,
   snap,
   timeToX,
   TRACK_GAP,
   TRACK_HEIGHT,
+  trackRows,
   trackTop,
   xToTime,
+  type DropTarget,
   type View,
 } from './geometry';
 
@@ -44,12 +50,24 @@ const COLORS = {
   clipText: '#eef0ff',
   handle: 'rgba(255,255,255,0.55)',
   playhead: '#f43f5e',
+  newTrack: '#a5b4fc',
 };
+
+/** Moving a clip in time and, optionally, to another or a new track. */
+interface MoveDrag {
+  kind: 'move';
+  clip: Clip;
+  grabOffsetUs: number;
+  previewStart: number;
+  originTrackId: number;
+  trackKind: TrackKind;
+  target: DropTarget;
+}
 
 /** A drag in progress. Edits are previewed locally and committed on release. */
 type Drag =
   | { kind: 'scrub' }
-  | { kind: 'move'; clip: Clip; grabOffsetUs: number; previewStart: number }
+  | MoveDrag
   | { kind: 'trim'; clip: Clip; edge: 'start' | 'end'; previewAt: number };
 
 /**
@@ -66,7 +84,14 @@ export function Timeline() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    paint(ctx, canvas, useEditor.getState(), dragRef.current);
+    const state = useEditor.getState();
+    // Keep the vertical scroll valid when tracks are removed or the panel resizes.
+    const maxY = maxScrollY(trackRows(state.timeline).length, canvas.clientHeight);
+    if (state.view.scrollY > maxY) {
+      setView({ scrollY: maxY }); // re-renders via the store subscription
+      return;
+    }
+    paint(ctx, canvas, state, dragRef.current);
   }, []);
 
   // Redraw on every store change, and when the element resizes.
@@ -129,6 +154,9 @@ export function Timeline() {
             clip: hit.clip,
             grabOffsetUs: at - hit.clip.start,
             previewStart: hit.clip.start,
+            originTrackId: hit.trackId,
+            trackKind: timeline.tracks.find((t) => t.id === hit.trackId)?.kind ?? 'video',
+            target: { type: 'track', trackId: hit.trackId },
           };
     } else {
       if (hit.kind !== 'ruler') selectClip(null);
@@ -162,6 +190,7 @@ export function Timeline() {
         const snappedEnd = snap(start + drag.clip.duration, targets, view) - drag.clip.duration;
         drag.previewStart =
           snappedStart !== start ? snappedStart : snappedEnd !== start ? snappedEnd : start;
+        drag.target = dropTarget(timeline, view, y, drag.trackKind);
         draw();
         break;
       }
@@ -175,8 +204,18 @@ export function Timeline() {
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
-    if (drag?.kind === 'move' && drag.previewStart !== drag.clip.start) {
-      edit((e) => e.moveClip(drag.clip.id, drag.previewStart));
+    if (drag?.kind === 'move') {
+      const { target } = drag;
+      const sameTrack = target.type === 'track' && target.trackId === drag.originTrackId;
+      if (!sameTrack) {
+        moveClip(
+          drag.clip.id,
+          drag.previewStart,
+          target.type === 'new' ? { newTrack: target.kind } : { trackId: target.trackId },
+        );
+      } else if (drag.previewStart !== drag.clip.start) {
+        moveClip(drag.clip.id, drag.previewStart);
+      }
     } else if (drag?.kind === 'trim') {
       const original = drag.edge === 'start' ? drag.clip.start : clipEnd(drag.clip);
       if (drag.previewAt !== original)
@@ -192,19 +231,28 @@ export function Timeline() {
       const { x } = pointer(event);
       const anchor = xToTime(x, view);
       const pxPerSecond = clamp(view.pxPerSecond * Math.exp(-event.deltaY * 0.002), 4, 800);
-      const next: View = { pxPerSecond, scrollUs: 0 };
+      const next: View = { ...view, pxPerSecond, scrollUs: 0 };
       next.scrollUs = Math.max(0, anchor - xToTime(x, next));
       setView(next);
-    } else {
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      setView({
-        scrollUs: Math.max(0, view.scrollUs + (delta / view.pxPerSecond) * MICROS_PER_SECOND),
-      });
+      return;
     }
+    const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey;
+    const rows = trackRows(useEditor.getState().timeline).length;
+    const maxY = maxScrollY(rows, event.currentTarget.clientHeight);
+    if (!horizontal && maxY > 0) {
+      // Tracks overflow the panel: the wheel scrolls them vertically.
+      setView({ scrollY: clamp(view.scrollY + event.deltaY, 0, maxY) });
+      return;
+    }
+    const delta = horizontal && event.deltaX !== 0 ? event.deltaX : event.deltaY;
+    setView({
+      scrollUs: Math.max(0, view.scrollUs + (delta / view.pxPerSecond) * MICROS_PER_SECOND),
+    });
   };
 
   return (
     <div ref={containerRef} className="timeline" aria-label="Timeline">
+      <TrackList />
       <canvas
         ref={canvasRef}
         onPointerDown={onPointerDown}
@@ -228,13 +276,203 @@ function paint(
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.width / dpr;
   const height = canvas.height / dpr;
-  const { view, timeline, assets, peaks, selectedClipId, playhead } = state;
+  const { view, timeline, playhead } = state;
+  const rows = trackRows(timeline);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, width, height);
 
-  // Ruler: only ticks in the visible range.
+  // A clip being moved to another (or a new) track is drawn there, not in its own row.
+  const moving = drag?.kind === 'move' ? drag : null;
+  const movesAway = (trackId: number) =>
+    moving !== null &&
+    (moving.target.type === 'new' ||
+      (moving.target.type === 'track' && moving.target.trackId !== trackId));
+
+  rows.forEach((track, row) => {
+    const top = trackTop(row, view.scrollY);
+    if (top + TRACK_HEIGHT < RULER_HEIGHT || top > height) return; // off screen
+    ctx.fillStyle = COLORS.track;
+    ctx.fillRect(0, top, width, TRACK_HEIGHT);
+    if (track.clips.length === 0) {
+      ctx.fillStyle = COLORS.trackLabel;
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        track.kind === 'audio' ? 'Audio: drop music or voice-over here' : 'Video',
+        timeToX(0, view) + 8,
+        top + TRACK_HEIGHT / 2,
+      );
+    }
+    for (const clip of track.clips) {
+      if (moving?.clip.id === clip.id && movesAway(track.id)) continue;
+      drawClip(ctx, state, drag, { clip, kind: track.kind, top, width });
+    }
+    // A clip being dragged here from another track is previewed on this row.
+    if (
+      moving?.target.type === 'track' &&
+      moving.target.trackId === track.id &&
+      moving.originTrackId !== track.id
+    ) {
+      drawClip(ctx, state, drag, { clip: moving.clip, kind: track.kind, top, width });
+    }
+  });
+
+  drawRuler(ctx, view, width);
+  // After the ruler: the hint for a new top track sits right under it.
+  if (moving?.target.type === 'new') drawNewTrackHint(ctx, state, drag, moving, rows, width);
+  drawPlayhead(ctx, timeToX(playhead, view), height);
+}
+
+/** Draw one clip (at its preview position while it's being dragged or trimmed). */
+function drawClip(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  drag: Drag | null,
+  {
+    clip,
+    kind,
+    top,
+    width,
+    ghost = false,
+  }: { clip: Clip; kind: TrackKind; top: number; width: number; ghost?: boolean },
+) {
+  const { view, assets, peaks, selectedClipId } = state;
+  let start = clip.start;
+  let end = clipEnd(clip);
+  if (drag && drag.kind !== 'scrub' && drag.clip.id === clip.id) {
+    if (drag.kind === 'move') {
+      start = drag.previewStart;
+      end = start + clip.duration;
+    } else if (drag.edge === 'start') {
+      start = Math.min(drag.previewAt, end);
+    } else {
+      end = Math.max(drag.previewAt, start);
+    }
+  }
+  const left = timeToX(start, view);
+  const right = timeToX(end, view);
+  if (right < 0 || left > width) return;
+
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.75;
+  const selected = clip.id === selectedClipId;
+  const isAudio = kind === 'audio';
+  const missing = assets[clip.assetId]?.missing ?? false;
+  ctx.fillStyle = missing
+    ? selected
+      ? COLORS.missingClipSelected
+      : COLORS.missingClip
+    : isAudio
+      ? selected
+        ? COLORS.audioClipSelected
+        : COLORS.audioClip
+      : selected
+        ? COLORS.clipSelected
+        : COLORS.clip;
+  roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
+  ctx.fill();
+  // Source time follows the clip while it is being dragged.
+  const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
+  const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin);
+  const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
+  const filmstrip = strip !== undefined && strip.loaded > 0;
+  if (filmstrip) {
+    drawFilmstrip(ctx, strip, {
+      left,
+      right,
+      top: top + 2,
+      height: TRACK_HEIGHT - 4,
+      viewportWidth: width,
+      sourceAtX,
+      selected,
+    });
+  }
+  if (selected) {
+    ctx.fillStyle = COLORS.handle;
+    ctx.fillRect(left + 2, top + 14, 3, TRACK_HEIGHT - 28);
+    ctx.fillRect(right - 5, top + 14, 3, TRACK_HEIGHT - 28);
+  }
+  ctx.beginPath();
+  ctx.rect(left + 8, top, Math.max(0, right - left - 16), TRACK_HEIGHT);
+  ctx.clip();
+  // Waveform: a slim band under the filmstrip, or the lower half of a plain clip.
+  const clipPeaks = peaks[clip.assetId];
+  if (clipPeaks) {
+    drawWaveform(ctx, clipPeaks, {
+      left: Math.max(left, 0),
+      right: Math.min(right, width),
+      top: filmstrip ? top + TRACK_HEIGHT - 19 : top + 26,
+      height: filmstrip ? 14 : TRACK_HEIGHT - 32,
+      view,
+      sourceAt: (t) => clip.sourceIn + (t - origin),
+      gain: clip.volumePercent / 100,
+      muted: clip.muted,
+    });
+  }
+  ctx.fillStyle = COLORS.clipText;
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  const status = missing
+    ? '  ·  missing media'
+    : clip.muted
+      ? '  ·  muted'
+      : clip.volumePercent !== 100
+        ? `  ·  ${clip.volumePercent}%`
+        : '';
+  // Pin the label to the visible part of the clip, so it stays readable when scrolled.
+  ctx.fillText(
+    `${assets[clip.assetId]?.name ?? 'Clip'}${status}`,
+    Math.max(left, 0) + 10,
+    top + 15,
+  );
+  ctx.fillStyle = 'rgba(238,240,255,0.7)';
+  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(formatTimecode(end - start), right - 10, top + 15);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+/**
+ * Dragging past the top video row (or below the last audio row) creates a
+ * track: show where it will appear and a translucent preview of the clip.
+ */
+function drawNewTrackHint(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  drag: Drag | null,
+  moving: MoveDrag,
+  rows: readonly Track[],
+  width: number,
+) {
+  const { scrollY } = state.view;
+  const kind = moving.trackKind;
+  const ownRows = rows.flatMap((t, row) => (t.kind === kind ? [row] : []));
+  const lineY =
+    kind === 'video'
+      ? trackTop(ownRows[0] ?? 0, scrollY) - TRACK_GAP / 2
+      : trackTop((ownRows.at(-1) ?? rows.length - 1) + 1, scrollY) - TRACK_GAP / 2;
+  ctx.fillStyle = COLORS.newTrack;
+  ctx.fillRect(0, lineY - 1.5, width, 3);
+  // The preview straddles the insertion line, so it's clear where the track will appear.
+  const ghostTop = lineY - TRACK_HEIGHT / 2;
+  drawClip(ctx, state, drag, { clip: moving.clip, kind, top: ghostTop, width, ghost: true });
+  const label = kind === 'video' ? '+ New video track' : '+ New audio track';
+  ctx.font = '600 12px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  const labelWidth = ctx.measureText(label).width + 16;
+  const labelX = width - labelWidth - 12;
+  ctx.fillStyle = COLORS.newTrack;
+  roundRect(ctx, labelX, lineY - 11, labelWidth, 22, 11);
+  ctx.fill();
+  ctx.fillStyle = '#0b0b0f';
+  ctx.fillText(label, labelX + 8, lineY);
+}
+
+/** Drawn after the tracks so it stays on top while they scroll underneath. */
+function drawRuler(ctx: CanvasRenderingContext2D, view: View, width: number) {
   ctx.fillStyle = COLORS.ruler;
   ctx.fillRect(0, 0, width, RULER_HEIGHT);
   const step = rulerStep(view.pxPerSecond);
@@ -252,125 +490,15 @@ function paint(
     ctx.fillStyle = COLORS.label;
     ctx.fillText(formatTimecode(t).slice(0, 5), x + 4, RULER_HEIGHT / 2 - 2);
   }
+}
 
-  // Tracks and clips.
-  timeline.tracks.forEach((track, index) => {
-    const top = trackTop(index);
-    ctx.fillStyle = COLORS.track;
-    ctx.fillRect(0, top, width, TRACK_HEIGHT);
-    if (track.clips.length === 0) {
-      ctx.fillStyle = COLORS.trackLabel;
-      ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText(
-        track.kind === 'audio' ? 'Audio: drop music or voice-over here' : 'Video',
-        timeToX(0, view) + 8,
-        top + TRACK_HEIGHT / 2,
-      );
-    }
-
-    for (const clip of track.clips) {
-      let start = clip.start;
-      let end = clipEnd(clip);
-      if (drag && drag.kind !== 'scrub' && drag.clip.id === clip.id) {
-        if (drag.kind === 'move') {
-          start = drag.previewStart;
-          end = start + clip.duration;
-        } else if (drag.edge === 'start') {
-          start = Math.min(drag.previewAt, end);
-        } else {
-          end = Math.max(drag.previewAt, start);
-        }
-      }
-      const left = timeToX(start, view);
-      const right = timeToX(end, view);
-      if (right < 0 || left > width) continue;
-
-      const selected = clip.id === selectedClipId;
-      const isAudio = track.kind === 'audio';
-      const missing = assets[clip.assetId]?.missing ?? false;
-      ctx.fillStyle = missing
-        ? selected
-          ? COLORS.missingClipSelected
-          : COLORS.missingClip
-        : isAudio
-          ? selected
-            ? COLORS.audioClipSelected
-            : COLORS.audioClip
-          : selected
-            ? COLORS.clipSelected
-            : COLORS.clip;
-      roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
-      ctx.fill();
-      // Source time follows the clip while it is being dragged.
-      const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
-      const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin);
-      const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
-      const filmstrip = strip !== undefined && strip.loaded > 0;
-      if (filmstrip) {
-        drawFilmstrip(ctx, strip, {
-          left,
-          right,
-          top: top + 2,
-          height: TRACK_HEIGHT - 4,
-          viewportWidth: width,
-          sourceAtX,
-          selected,
-        });
-      }
-      if (selected) {
-        ctx.fillStyle = COLORS.handle;
-        ctx.fillRect(left + 2, top + 14, 3, TRACK_HEIGHT - 28);
-        ctx.fillRect(right - 5, top + 14, 3, TRACK_HEIGHT - 28);
-      }
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(left + 8, top, Math.max(0, right - left - 16), TRACK_HEIGHT);
-      ctx.clip();
-      // Waveform: a slim band under the filmstrip, or the lower half of a plain clip.
-      const clipPeaks = peaks[clip.assetId];
-      if (clipPeaks) {
-        drawWaveform(ctx, clipPeaks, {
-          left: Math.max(left, 0),
-          right: Math.min(right, width),
-          top: filmstrip ? top + TRACK_HEIGHT - 19 : top + 26,
-          height: filmstrip ? 14 : TRACK_HEIGHT - 32,
-          view,
-          sourceAt: (t) => clip.sourceIn + (t - origin),
-          gain: clip.volumePercent / 100,
-          muted: clip.muted,
-        });
-      }
-      ctx.fillStyle = COLORS.clipText;
-      ctx.font = '12px system-ui, sans-serif';
-      const status = missing
-        ? '  ·  missing media'
-        : clip.muted
-          ? '  ·  muted'
-          : clip.volumePercent !== 100
-            ? `  ·  ${clip.volumePercent}%`
-            : '';
-      // Pin the label to the visible part of the clip, so it stays readable when scrolled.
-      ctx.fillText(
-        `${assets[clip.assetId]?.name ?? 'Clip'}${status}`,
-        Math.max(left, 0) + 10,
-        top + 15,
-      );
-      ctx.fillStyle = 'rgba(238,240,255,0.7)';
-      ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(formatTimecode(end - start), right - 10, top + 15);
-      ctx.textAlign = 'left';
-      ctx.restore();
-    }
-  });
-
-  // Playhead.
-  const px = Math.round(timeToX(playhead, view)) + 0.5;
+function drawPlayhead(ctx: CanvasRenderingContext2D, x: number, height: number) {
+  const px = Math.round(x) + 0.5;
   ctx.strokeStyle = COLORS.playhead;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(px, 0);
-  ctx.lineTo(px, Math.max(height, trackTop(timeline.tracks.length) + TRACK_GAP));
+  ctx.lineTo(px, height);
   ctx.stroke();
   ctx.fillStyle = COLORS.playhead;
   ctx.beginPath();

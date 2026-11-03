@@ -1,13 +1,13 @@
 import { create } from 'zustand';
 import { AudioOutput } from '../audio/client';
 import { TimelineEngine } from '../engine/engine';
-import { clipEnd, type Clip, type TimelineSnapshot } from '../engine/types';
+import { clipEnd, type Clip, type TimelineSnapshot, type TrackKind } from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
 import type { ProjectAsset } from '../project/document';
 import type { RendererBackend } from '../render/protocol';
-import type { View } from '../timeline/geometry';
+import { trackRows, type View } from '../timeline/geometry';
 
 const MAX_HISTORY = 100;
 
@@ -50,7 +50,7 @@ export const useEditor = create<EditorState>(() => ({
   playhead: 0,
   playing: false,
   selectedClipId: null,
-  view: { pxPerSecond: 60, scrollUs: 0 },
+  view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   importing: 0,
   message: null,
   backend: null,
@@ -126,8 +126,10 @@ export function requestFrame() {
 }
 
 /**
- * Run an editing operation with undo support. The engine validates every edit;
- * if it rejects one, the timeline is left untouched and the reason is shown.
+ * Run an editing operation with undo support. Edits are atomic: an operation
+ * may take several engine steps (e.g. create a track, then move a clip into
+ * it), and if any step is rejected, the timeline is restored exactly as it was
+ * and the reason is shown.
  */
 export function edit(operation: (engine: TimelineEngine) => void): boolean {
   const e = requireEngine();
@@ -135,6 +137,7 @@ export function edit(operation: (engine: TimelineEngine) => void): boolean {
   try {
     operation(e);
   } catch (error) {
+    e.load(before); // roll back any steps that already succeeded
     notify('error', error instanceof Error ? error.message : String(error));
     return false;
   }
@@ -306,7 +309,7 @@ export async function loadProject(project: {
     peaks: {},
     playhead: 0,
     selectedClipId: null,
-    view: { pxPerSecond: 60, scrollUs: 0 },
+    view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   });
   refresh();
 
@@ -441,10 +444,11 @@ export function selectedClip(state: EditorState = get()): Clip | null {
 /** Split the selected clip at the playhead, or the top clip under the playhead. */
 export function splitAtPlayhead() {
   const { timeline, playhead, selectedClipId } = get();
-  const clips = timeline.tracks.flatMap((t) => t.clips);
+  // Display order, so the topmost visible clip wins when tracks overlap.
+  const clips = trackRows(timeline).flatMap((t) => t.clips);
   const underPlayhead = (c: Clip) => c.start < playhead && playhead < clipEnd(c);
   const target =
-    clips.find((c) => c.id === selectedClipId && underPlayhead(c)) ?? clips.findLast(underPlayhead);
+    clips.find((c) => c.id === selectedClipId && underPlayhead(c)) ?? clips.find(underPlayhead);
   if (!target) {
     notify('info', 'Move the playhead over a clip to split it.');
     return;
@@ -455,7 +459,32 @@ export function splitAtPlayhead() {
 export function deleteSelected() {
   const { selectedClipId } = get();
   if (selectedClipId === null) return;
-  if (edit((e) => e.removeClip(selectedClipId))) set({ selectedClipId: null });
+  const removed = edit((e) => {
+    e.removeClip(selectedClipId);
+    e.pruneEmptyTracks(); // same undo step: undo brings the track back too
+  });
+  if (removed) set({ selectedClipId: null });
+}
+
+/**
+ * Move a clip in time and, optionally, to another track of the same kind or a
+ * brand-new track. Tracks left empty are removed in the same (undoable) step.
+ */
+export function moveClip(
+  clipId: number,
+  start: number,
+  target: { trackId: number } | { newTrack: TrackKind } | null = null,
+): boolean {
+  return edit((e) => {
+    const trackId =
+      target === null
+        ? undefined
+        : 'newTrack' in target
+          ? e.addTrack(target.newTrack)
+          : target.trackId;
+    e.moveClip(clipId, start, trackId);
+    e.pruneEmptyTracks();
+  });
 }
 
 export function setClipVolume(clipId: number, percent: number) {

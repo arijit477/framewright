@@ -5,11 +5,12 @@
  * request is processed; older ones are dropped. That keeps scrubbing responsive
  * and lets playback skip frames instead of falling behind.
  */
-import { VideoSampleSink, type VideoSample } from 'mediabunny';
+import { VideoSampleSink, type InputVideoTrack, type VideoSample } from 'mediabunny';
 import type { Layer } from '../engine/types';
 import { openAsset, toMicros } from '../media/asset';
 import { createCompositor, type Compositor } from './compositor';
 import { FrameReader } from './frame-reader';
+import { ReaderPool } from './reader-pool';
 import { COMPOSITION, type FromWorker, type ToWorker } from './protocol';
 
 interface WorkerScope {
@@ -20,7 +21,12 @@ const scope = self as unknown as WorkerScope;
 const send = (message: FromWorker) => scope.postMessage(message);
 
 let compositor: Compositor | null = null;
-const readers = new Map<string, FrameReader>();
+const videoTracks = new Map<string, InputVideoTrack>();
+/** One decoder per (asset, track), so the same file on two tracks doesn't thrash. */
+const readers = new ReaderPool((assetId) => {
+  const track = videoTracks.get(assetId);
+  return track ? new FrameReader(new VideoSampleSink(track)) : null;
+});
 let pending: { requestId: number; layers: Layer[] } | null = null;
 let rendering = false;
 
@@ -34,8 +40,8 @@ scope.onmessage = (event) => {
       void addAsset(message.id, message.file);
       break;
     case 'clearAssets':
-      for (const reader of readers.values()) void reader.dispose();
-      readers.clear();
+      videoTracks.clear();
+      void readers.clear();
       break;
     case 'render':
       pending = { requestId: message.requestId, layers: message.layers };
@@ -61,7 +67,10 @@ async function addAsset(id: string, file: File) {
     const { video, durationUs } = await openAsset(file);
     // Video clips last as long as their video track; audio-only files use the container.
     const videoDurationUs = video ? toMicros(await video.computeDuration()) : durationUs;
-    if (video) readers.set(id, new FrameReader(new VideoSampleSink(video)));
+    // Re-adding an asset (relink) replaces its decoders.
+    void readers.removeAsset(id);
+    if (video) videoTracks.set(id, video);
+    else videoTracks.delete(id);
     send({
       type: 'assetReady',
       asset: {
@@ -93,7 +102,9 @@ async function drain() {
       pending = null;
       const started = performance.now();
       const frames = await Promise.all(
-        layers.map((layer) => readers.get(layer.assetId)?.frameAt(layer.sourceTime / 1_000_000)),
+        layers.map((layer) =>
+          readers.get(layer.assetId, layer.trackIndex)?.frameAt(layer.sourceTime / 1_000_000),
+        ),
       );
       compositor.draw(frames.filter((f): f is VideoSample => f != null));
       send({ type: 'rendered', requestId, ms: performance.now() - started });

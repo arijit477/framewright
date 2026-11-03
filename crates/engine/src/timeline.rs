@@ -181,6 +181,36 @@ impl Timeline {
         id
     }
 
+    /// Remove empty tracks, keeping at least one track of each kind (the first
+    /// empty one, if a kind has no content at all). Returns the removed ids in
+    /// track order. Called after edits that can leave a track empty.
+    pub fn prune_empty_tracks(&mut self) -> Vec<TrackId> {
+        let mut doomed: Vec<TrackId> = Vec::new();
+        for kind in [TrackKind::Video, TrackKind::Audio] {
+            let has_content = self
+                .tracks
+                .iter()
+                .any(|t| t.kind == kind && !t.clips.is_empty());
+            let mut empties = self
+                .tracks
+                .iter()
+                .filter(|t| t.kind == kind && t.clips.is_empty())
+                .map(|t| t.id);
+            if !has_content {
+                empties.next(); // keep one track of this kind
+            }
+            doomed.extend(empties);
+        }
+        let removed: Vec<TrackId> = self
+            .tracks
+            .iter()
+            .map(|t| t.id)
+            .filter(|id| doomed.contains(id))
+            .collect();
+        self.tracks.retain(|t| !doomed.contains(&t.id));
+        removed
+    }
+
     pub fn remove_track(&mut self, track_id: TrackId) -> Result<(), EditError> {
         let index = self.track_index(track_id)?;
         self.tracks.remove(index);
@@ -597,6 +627,45 @@ mod tests {
         let tl = Timeline::from_json(json).unwrap();
         let clip = &tl.tracks[0].clips[0];
         assert_eq!((clip.volume_percent, clip.muted), (100, false));
+    }
+
+    #[test]
+    fn prune_removes_empty_extra_tracks_only() {
+        let mut tl = Timeline::new();
+        let v1 = tl.add_track(TrackKind::Video);
+        let a1 = tl.add_track(TrackKind::Audio);
+        let v2 = tl.add_track(TrackKind::Video);
+        let v3 = tl.add_track(TrackKind::Video);
+        tl.add_clip(v3, "b-roll", 0, S, 0, S).unwrap();
+
+        // v1 and v2 are empty, but v3 has content: both empty video tracks go.
+        assert_eq!(tl.prune_empty_tracks(), vec![v1, v2]);
+        let ids: Vec<_> = tl.tracks.iter().map(|t| t.id).collect();
+        assert_eq!(
+            ids,
+            vec![a1, v3],
+            "the empty audio track stays: it's the only one"
+        );
+    }
+
+    #[test]
+    fn prune_keeps_one_track_of_each_kind() {
+        let mut tl = Timeline::new();
+        let v1 = tl.add_track(TrackKind::Video);
+        let a1 = tl.add_track(TrackKind::Audio);
+        tl.add_track(TrackKind::Video);
+        tl.add_track(TrackKind::Audio);
+        tl.prune_empty_tracks();
+        let ids: Vec<_> = tl.tracks.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![v1, a1], "the first track of each kind is kept");
+    }
+
+    #[test]
+    fn prune_is_a_no_op_when_nothing_is_empty() {
+        let (mut tl, _, _) = timeline_with_clip();
+        tl.add_track(TrackKind::Audio);
+        assert!(tl.prune_empty_tracks().is_empty());
+        assert_eq!(tl.tracks.len(), 2);
     }
 
     #[test]

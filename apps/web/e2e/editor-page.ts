@@ -46,6 +46,33 @@ export class EditorPage {
     await this.page.mouse.click(box.x + this.xAt(seconds), box.y + y);
   }
 
+  /** The accessible track list, top row first, e.g. "Video 2: red.webm from 00:02:00 to 00:05:00". */
+  async tracks(): Promise<string[]> {
+    return this.page
+      .getByRole('list', { name: 'Timeline tracks' })
+      .getByRole('listitem')
+      .allInnerTexts();
+  }
+
+  /**
+   * Drag the clip on display row `row` grabbed at `seconds` so that point lands
+   * at `toSeconds`, either on display row `toRow` or into a new top video track.
+   */
+  async dragClip(
+    row: number,
+    seconds: number,
+    to: { toSeconds: number; toRow: number | 'new-top' },
+  ) {
+    const box = await this.box();
+    const rowY = (r: number) =>
+      RULER_HEIGHT + TRACK_GAP + r * (TRACK_HEIGHT + TRACK_GAP) + TRACK_HEIGHT / 2;
+    const targetY = to.toRow === 'new-top' ? RULER_HEIGHT / 2 : rowY(to.toRow);
+    await this.page.mouse.move(box.x + this.xAt(seconds), box.y + rowY(row));
+    await this.page.mouse.down();
+    await this.page.mouse.move(box.x + this.xAt(to.toSeconds), box.y + targetY, { steps: 6 });
+    await this.page.mouse.up();
+  }
+
   async press(key: string) {
     await this.page.keyboard.press(key);
   }
