@@ -79,6 +79,21 @@ Open http://localhost:5173 in Chrome, Edge, Safari 26+ or Firefox.
 | `pnpm typecheck` | TypeScript                                                 |
 | `pnpm format`    | Prettier + rustfmt                                         |
 
+## Deployment
+
+The app is a static site. It's deployed on **Vercel** from Git: `main` deploys to production and
+pull requests get preview deployments. All settings live in the repo:
+
+- `vercel.json`: install and build commands, output directory, and the required headers
+  (cross-origin isolation for `SharedArrayBuffer`, plus caching and security headers).
+- `scripts/vercel-install.sh`: installs pinned Rust and wasm-pack on Vercel's build machines, builds the
+  optimised WASM engine, then installs JS dependencies.
+
+To deploy your own copy, import the repository in Vercel (**Add New → Project**) and keep the
+default settings; `vercel.json` provides the rest. Any static host works if it can send the
+`Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` headers (see
+`apps/web/public/_headers` for Netlify and Cloudflare Pages).
+
 ## Project layout
 
 ```
