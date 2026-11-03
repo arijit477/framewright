@@ -9,6 +9,7 @@ import {
   ProjectFormatError,
   serializeProject,
   summarize,
+  uniqueName,
   type ProjectAsset,
   type ProjectDocument,
 } from './document';
@@ -107,5 +108,18 @@ describe('matchFile', () => {
 
   it('returns null when nothing matches by name', () => {
     expect(matchFile({ name: 'missing.mov', size: 1234 }, files)).toBeNull();
+  });
+});
+
+describe('uniqueName', () => {
+  it('keeps free names and numbers taken ones', () => {
+    expect(uniqueName('Trip', ['Other'])).toBe('Trip');
+    expect(uniqueName('Trip', ['trip'])).toBe('Trip (2)');
+    expect(uniqueName('Trip', ['Trip', 'Trip (2)'])).toBe('Trip (3)');
+  });
+
+  it('stays within the length limit', () => {
+    const long = 'x'.repeat(100);
+    expect(uniqueName(long, [long])).toHaveLength(100);
   });
 });

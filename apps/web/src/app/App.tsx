@@ -13,7 +13,13 @@ import {
   useEditor,
 } from '../store/editor';
 import { openExport, useExport } from '../store/export';
-import { initProjects, saveProject, useProject } from '../store/project';
+import {
+  importBackup,
+  initProjects,
+  isBackupFile,
+  saveProject,
+  useProject,
+} from '../store/project';
 import { Timeline } from '../timeline/Timeline';
 import { ExportDialog } from './ExportDialog';
 import { MissingMediaBanner } from './MissingMedia';
@@ -100,7 +106,12 @@ export function App() {
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        if (ready) void importFiles(e.dataTransfer.files);
+        if (!ready) return;
+        // A dropped backup restores a project; anything else is media.
+        const files = [...e.dataTransfer.files];
+        const backup = files.find(isBackupFile);
+        if (backup) void importBackup(backup);
+        else void importFiles(files);
       }}
     >
       <div className="chrome">

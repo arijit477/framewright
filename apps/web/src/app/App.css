@@ -522,3 +522,23 @@ button.danger-quiet {
     display: none;
   }
 }
+
+.project-backup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.project-backup button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.project-busy {
+  margin: 12px 0 0;
+  color: var(--accent-hover);
+  font-size: 13px;
+}

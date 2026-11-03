@@ -217,3 +217,15 @@ const isIsoDate = (v: unknown): v is string =>
 const invalid = (name: string): never => {
   throw new ProjectFormatError(`The project file has an invalid "${name}".`);
 };
+
+/** `name`, or `name (2)`, `name (3)`… so it doesn't collide with `existing` (case-insensitive). */
+export function uniqueName(name: string, existing: Iterable<string>): string {
+  const taken = new Set([...existing].map((n) => n.toLowerCase()));
+  const base = cleanName(name);
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) {
+    const suffix = ` (${n})`;
+    const candidate = base.slice(0, MAX_NAME_LENGTH - suffix.length) + suffix;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}

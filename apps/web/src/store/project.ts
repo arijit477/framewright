@@ -8,7 +8,14 @@ import {
   ProjectFormatError,
   type ProjectDocument,
   type ProjectSummary,
+  uniqueName,
 } from '../project/document';
+import {
+  backupFileName,
+  BACKUP_EXTENSION,
+  createBackupStream,
+  readBackup,
+} from '../project/backup';
 import { SaveScheduler, type SaveState } from '../project/save-scheduler';
 import { ProjectStorage, storageEstimate } from '../project/storage';
 import {
@@ -42,6 +49,8 @@ export interface ProjectState {
   storage: { usage: number; quota: number } | null;
   /** Media files still being copied into project storage. */
   copying: number;
+  /** A long-running project task, shown in the dialog (e.g. "Importing backup…"). */
+  busy: string | null;
 }
 
 export const useProject = create<ProjectState>(() => ({
@@ -54,6 +63,7 @@ export const useProject = create<ProjectState>(() => ({
   projects: [],
   storage: null,
   copying: 0,
+  busy: null,
 }));
 
 const set = useProject.setState;
@@ -229,6 +239,121 @@ export async function relinkMissing(files: readonly File[]): Promise<void> {
       : `Relinked ${linked}; ${left} still missing (choose files with the same names).`,
   );
 }
+
+// ---------------------------------------------------------------- backups
+
+/**
+ * Save a project as a .framewright backup (a ZIP with the project and its
+ * media). Streams to disk via the Save dialog where available (Chrome, Edge),
+ * otherwise downloads normally.
+ */
+export async function downloadBackup(projectId: string): Promise<void> {
+  if (!storage || get().busy) return;
+  if (get().current?.id === projectId) {
+    // Make sure it's on disk, even if it was never edited.
+    scheduler.markDirty();
+    await scheduler.flush();
+  }
+  set({ busy: 'Preparing backup…' });
+  try {
+    const doc = await storage.read(projectId);
+    const media = new Map<string, File>();
+    for (const asset of doc.assets) {
+      const file = await storage.getMedia(projectId, asset.id);
+      if (file) media.set(asset.id, file);
+    }
+    const fileName = backupFileName(doc.name, new Date());
+    const saved = await saveStream(() => createBackupStream(doc, media), fileName);
+    if (!saved) return; // the user cancelled the Save dialog
+    const skipped = doc.assets.length - media.size;
+    notify(
+      skipped > 0 ? 'error' : 'info',
+      skipped > 0
+        ? `Backup saved without ${skipped} missing media file${skipped > 1 ? 's' : ''}. Relink them first to include them.`
+        : `Backup saved: ${fileName}`,
+    );
+  } catch (error) {
+    notify('error', `Couldn't create the backup: ${describe(error)}`);
+  } finally {
+    set({ busy: null });
+  }
+}
+
+/**
+ * Restore a backup as a new project (never overwriting an existing one) and
+ * open it. On any failure, nothing is left behind.
+ */
+export async function importBackup(file: File): Promise<void> {
+  if (!storage || get().busy) {
+    if (!storage)
+      notify('error', "This browser can't store projects, so backups can't be imported.");
+    return;
+  }
+  set({ busy: `Importing ${file.name}…` });
+  const id = crypto.randomUUID();
+  try {
+    const { doc, media, missing } = await readBackup(file);
+    const existing = (await storage.list()).map((p) => p.name);
+    const restored: ProjectDocument = {
+      ...doc,
+      id,
+      name: uniqueName(doc.name, existing),
+      updatedAt: new Date().toISOString(),
+    };
+    for (const [assetId, blob] of media) await storage.putMedia(id, assetId, blob);
+    await storage.write(restored); // last: the project only appears once complete
+    set({ busy: null });
+    if (await openProject(id)) {
+      notify(
+        missing.length > 0 ? 'error' : 'info',
+        missing.length > 0
+          ? `Imported "${restored.name}"; ${missing.length} media file${missing.length > 1 ? 's' : ''} were not in the backup.`
+          : `Imported "${restored.name}".`,
+      );
+    }
+    await refreshList();
+  } catch (error) {
+    await storage.remove(id).catch(() => {}); // roll back a partial import
+    notify('error', describe(error));
+  } finally {
+    set({ busy: null });
+  }
+}
+
+export const isBackupFile = (file: File) => file.name.toLowerCase().endsWith(BACKUP_EXTENSION);
+
+/** Write a stream to a user-chosen file. Returns false if the user cancelled. */
+async function saveStream(stream: () => ReadableStream<Uint8Array>, fileName: string) {
+  const picker = (window as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  if (picker) {
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picker({
+        suggestedName: fileName,
+        types: [
+          { description: 'Framewright backup', accept: { 'application/zip': [BACKUP_EXTENSION] } },
+        ],
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return false;
+      throw error;
+    }
+    await stream().pipeTo(await handle.createWritable());
+    return true;
+  }
+  // Fallback: build the file (browsers back large blobs with disk) and download it.
+  const blob = await new Response(stream()).blob();
+  const url = URL.createObjectURL(blob);
+  const link = Object.assign(document.createElement('a'), { href: url, download: fileName });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
+}
+
+type SaveFilePicker = (options: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<FileSystemFileHandle>;
 
 // ---------------------------------------------------------------- dialog
 
