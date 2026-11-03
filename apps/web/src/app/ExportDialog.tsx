@@ -70,6 +70,12 @@ function Settings({ state }: { state: ExportState }) {
     s.timeline.tracks.some((t) => t.clips.some((c) => !c.muted && s.assets[c.assetId]?.hasAudio)),
   );
   const { width, height } = RESOLUTIONS[settings.resolution];
+  const missing = useEditor((s) =>
+    s.timeline.tracks.reduce(
+      (n, t) => n + t.clips.filter((c) => s.assets[c.assetId]?.missing).length,
+      0,
+    ),
+  );
 
   return (
     <form
@@ -84,6 +90,12 @@ function Settings({ state }: { state: ExportState }) {
         </p>
       )}
       {state.phase === 'cancelled' && <p className="muted">Export cancelled.</p>}
+      {missing > 0 && (
+        <p className="export-warning" role="alert">
+          {missing} clip{missing === 1 ? ' uses' : 's use'} missing media and will export as black
+          and silent. Relink first to include them.
+        </p>
+      )}
 
       <div className="export-grid">
         <label>

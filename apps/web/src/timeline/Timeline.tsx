@@ -25,6 +25,8 @@ const COLORS = {
   clip: '#4f46e5',
   clipSelected: '#818cf8',
   audioClip: '#0f766e',
+  missingClip: '#4a1d2a',
+  missingClipSelected: '#7f1d3a',
   audioClipSelected: '#14b8a6',
   waveform: 'rgba(238,240,255,0.55)',
   waveformMuted: 'rgba(238,240,255,0.18)',
@@ -275,13 +277,18 @@ function paint(
 
       const selected = clip.id === selectedClipId;
       const isAudio = track.kind === 'audio';
-      ctx.fillStyle = isAudio
+      const missing = assets[clip.assetId]?.missing ?? false;
+      ctx.fillStyle = missing
         ? selected
-          ? COLORS.audioClipSelected
-          : COLORS.audioClip
-        : selected
-          ? COLORS.clipSelected
-          : COLORS.clip;
+          ? COLORS.missingClipSelected
+          : COLORS.missingClip
+        : isAudio
+          ? selected
+            ? COLORS.audioClipSelected
+            : COLORS.audioClip
+          : selected
+            ? COLORS.clipSelected
+            : COLORS.clip;
       roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
       ctx.fill();
       if (selected) {
@@ -310,11 +317,13 @@ function paint(
       }
       ctx.fillStyle = COLORS.clipText;
       ctx.font = '12px system-ui, sans-serif';
-      const status = clip.muted
-        ? '  ·  muted'
-        : clip.volumePercent !== 100
-          ? `  ·  ${clip.volumePercent}%`
-          : '';
+      const status = missing
+        ? '  ·  missing media'
+        : clip.muted
+          ? '  ·  muted'
+          : clip.volumePercent !== 100
+            ? `  ·  ${clip.volumePercent}%`
+            : '';
       ctx.fillText(`${assets[clip.assetId]?.name ?? 'Clip'}${status}`, left + 10, top + 15);
       ctx.fillStyle = 'rgba(238,240,255,0.7)';
       ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';

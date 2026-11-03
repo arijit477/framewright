@@ -383,3 +383,142 @@ a.button.primary {
     grid-template-columns: 1fr;
   }
 }
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.project-name {
+  background: transparent;
+  border-color: transparent;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-name:hover:not(:disabled) {
+  background: #1f1f29;
+}
+
+.save-status {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+button.save-status.error {
+  color: #fda4af;
+  border-color: var(--danger);
+  padding: 2px 8px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #3b1d24;
+  border-bottom: 1px solid var(--danger);
+  font-size: 13px;
+}
+
+.project-rename {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.project-rename input {
+  font: inherit;
+  font-size: 15px;
+  color: var(--text);
+  background: #1f1f29;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.project-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.project-list-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.project-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.project-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.project-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.project-info {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.project-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-info .muted {
+  font-size: 12px;
+}
+
+.project-footer {
+  font-size: 12px;
+  margin-top: 16px;
+}
+
+button.danger {
+  background: #7f1d3a;
+  border-color: var(--danger);
+}
+
+button.danger-quiet {
+  margin-right: auto;
+  color: #fda4af;
+}
+
+@media (max-width: 640px) {
+  .save-status {
+    display: none;
+  }
+}

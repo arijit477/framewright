@@ -13,13 +13,19 @@ import {
   useEditor,
 } from '../store/editor';
 import { openExport, useExport } from '../store/export';
+import { initProjects, saveProject, useProject } from '../store/project';
 import { Timeline } from '../timeline/Timeline';
 import { ExportDialog } from './ExportDialog';
+import { MissingMediaBanner } from './MissingMedia';
+import { ProjectsDialog, ProjectTitle } from './ProjectsDialog';
 import { Preview } from './Preview';
 import { Toolbar } from './Toolbar';
 
 export function App() {
-  const ready = useEditor((s) => s.ready);
+  // Accept edits only once a project is open, or opening it would discard them.
+  const editorReady = useEditor((s) => s.ready);
+  const projectOpen = useProject((s) => s.current !== null);
+  const ready = editorReady && projectOpen;
   const message = useEditor((s) => s.message);
   const backend = useEditor((s) => s.backend);
   const lastFrameMs = useEditor((s) => s.lastFrameMs);
@@ -27,13 +33,19 @@ export function App() {
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
-    void initEditor();
+    // The editor must exist before a project can be loaded into it.
+    void initEditor().then(initProjects);
   }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement) return;
       const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === 's') {
+        event.preventDefault(); // not the browser's "save page"
+        void saveProject();
+        return;
+      }
       if (mod && event.key.toLowerCase() === 'e') {
         event.preventDefault();
         if (useEditor.getState().duration > 0) openExport();
@@ -88,21 +100,28 @@ export function App() {
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        void importFiles(e.dataTransfer.files);
+        if (ready) void importFiles(e.dataTransfer.files);
       }}
     >
-      <header className="topbar">
-        <span className="brand">Framewright</span>
-        <div className="topbar-right">
-          <span className="status" title="Rendering backend and last frame time">
-            {backend
-              ? `${backend === 'webgpu' ? 'WebGPU' : 'Canvas 2D'} · ${lastFrameMs.toFixed(1)} ms/frame · ${audioClock ? 'audio clock' : 'no audio'}`
-              : 'Starting…'}
-          </span>
-          <ExportButton />
-        </div>
-      </header>
+      <div className="chrome">
+        <header className="topbar">
+          <div className="topbar-left">
+            <span className="brand">Framewright</span>
+            <ProjectTitle />
+          </div>
+          <div className="topbar-right">
+            <span className="status" title="Rendering backend and last frame time">
+              {backend
+                ? `${backend === 'webgpu' ? 'WebGPU' : 'Canvas 2D'} · ${lastFrameMs.toFixed(1)} ms/frame · ${audioClock ? 'audio clock' : 'no audio'}`
+                : 'Starting…'}
+            </span>
+            <ExportButton />
+          </div>
+        </header>
+        <MissingMediaBanner />
+      </div>
       <ExportDialog />
+      <ProjectsDialog />
       <Preview />
       {ready && <Toolbar />}
       <Timeline />

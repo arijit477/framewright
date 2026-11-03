@@ -33,6 +33,10 @@ scope.onmessage = (event) => {
     case 'addAsset':
       void addAsset(message.id, message.file);
       break;
+    case 'clearAssets':
+      for (const reader of readers.values()) void reader.dispose();
+      readers.clear();
+      break;
     case 'render':
       pending = { requestId: message.requestId, layers: message.layers };
       void drain();

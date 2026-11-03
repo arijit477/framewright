@@ -33,6 +33,11 @@ export class RenderClient {
     });
   }
 
+  /** Release every decoder (e.g. when another project is opened). */
+  clearAssets(): void {
+    this.post({ type: 'clearAssets' });
+  }
+
   render(layers: Layer[]): void {
     this.post({ type: 'render', requestId: ++this.nextRequestId, layers });
   }

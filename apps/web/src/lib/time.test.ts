@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTimecode, framesToMicros, rulerStep, secondsToMicros } from './time';
+import { formatRelative, formatTimecode, framesToMicros, rulerStep, secondsToMicros } from './time';
 
 describe('formatTimecode', () => {
   it('formats minutes, seconds and frames', () => {
@@ -26,5 +26,26 @@ describe('rulerStep', () => {
   it('picks wider steps when zoomed out', () => {
     expect(rulerStep(100)).toBe(secondsToMicros(1));
     expect(rulerStep(10)).toBe(secondsToMicros(10));
+  });
+});
+
+describe('formatRelative', () => {
+  const now = new Date('2026-11-03T12:00:00Z');
+  const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000).toISOString();
+
+  it('describes recent times in words', () => {
+    expect(formatRelative(ago(10), now)).toBe('just now');
+    expect(formatRelative(ago(5 * 60), now)).toBe('5 min ago');
+    expect(formatRelative(ago(3 * 3600), now)).toBe('3 h ago');
+    expect(formatRelative(ago(86_400), now)).toBe('1 day ago');
+    expect(formatRelative(ago(3 * 86_400), now)).toBe('3 days ago');
+  });
+
+  it('treats clock skew (future times) as just now', () => {
+    expect(formatRelative(ago(-60), now)).toBe('just now');
+  });
+
+  it('shows a date for older edits', () => {
+    expect(formatRelative(ago(30 * 86_400), now)).toMatch(/2026/);
   });
 });

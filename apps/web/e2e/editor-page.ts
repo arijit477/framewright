@@ -96,6 +96,53 @@ export class EditorPage {
     return path;
   }
 
+  // ------------------------------------------------------------ projects
+
+  /** Wait until autosave (and media copies) have finished. */
+  async waitSaved() {
+    await expect(this.page.locator('.save-status')).toHaveText('All changes saved', {
+      timeout: 20_000,
+    });
+  }
+
+  async projectName() {
+    return ((await this.page.locator('.project-name').textContent()) ?? '').replace(/\s*▾$/, '');
+  }
+
+  async openProjects() {
+    await this.page.locator('.project-name').click();
+    await expect(this.page.locator('dialog[open] #projects-title')).toBeVisible();
+    return this.page.locator('dialog[open]');
+  }
+
+  async renameProject(name: string) {
+    const dialog = await this.openProjects();
+    const input = dialog.getByLabel('Project name');
+    await input.fill(name);
+    await input.press('Enter');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(this.page.locator('.project-name')).toContainText(name);
+  }
+
+  async newProject() {
+    const dialog = await this.openProjects();
+    await dialog.getByRole('button', { name: 'New project' }).click();
+    await expect(this.page.locator('dialog[open]')).toHaveCount(0);
+  }
+
+  async openProjectNamed(name: string) {
+    const dialog = await this.openProjects();
+    await dialog.getByRole('button', { name: `Open ${name}` }).click();
+    await expect(this.page.locator('.project-name')).toContainText(name);
+  }
+
+  async reload() {
+    await this.page.reload();
+    await expect(this.page.getByRole('button', { name: 'Import' })).toBeVisible({
+      timeout: 15_000,
+    });
+  }
+
   private xAt(seconds: number) {
     return TRACK_PADDING_X + seconds * PX_PER_SECOND;
   }

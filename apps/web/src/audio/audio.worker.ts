@@ -39,6 +39,11 @@ scope.onmessage = (event) => {
     case 'addAsset':
       void addAsset(message.id, message.file);
       break;
+    case 'clearAssets':
+      mixer?.setSegments([]);
+      mixer?.dispose();
+      tracks.clear();
+      break;
     case 'start':
       mixer?.setSegments(message.segments);
       restartAt(message.fromUs, message.epoch);

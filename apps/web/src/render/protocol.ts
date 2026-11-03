@@ -20,6 +20,8 @@ export type RendererBackend = 'webgpu' | 'canvas2d';
 export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas }
   | { type: 'addAsset'; id: string; file: File }
+  /** Drop every asset (switching projects). */
+  | { type: 'clearAssets' }
   | { type: 'render'; requestId: number; layers: Layer[] };
 
 /** Render worker -> main thread. */
