@@ -177,6 +177,30 @@ project JSON ─▶ TimelineEngine (own WASM instance in the worker)
   social-media lengths. Long 4K exports should stream to disk (roadmap). Export composites with
   Canvas 2D (see the ADR for why).
 
+## Multiple tracks
+
+See [ADR 0008](./adr/0008-track-order-and-lifecycle.md).
+
+- **Order:** the engine composites video tracks with higher indices on top. The timeline shows
+  video tracks in reverse (`trackRows()`), so the **top row is the top layer**, as in other
+  editors, followed by the audio tracks. Hit testing, drop targets and the accessible track list
+  all use this same order.
+- **Creating and removing tracks:** dragging a video clip above the top video row (or an audio
+  clip below the last audio row) creates a track for it (`dropTarget()`, unit-tested). Moves
+  and deletes call `pruneEmptyTracks()` (Rust, tested) in the same edit, which removes empty
+  tracks but keeps at least one of each kind. One undo restores both the clip and the track.
+- **Atomic edits:** `edit()` restores the snapshot taken before the operation if any step
+  throws, so multi-step edits (add track, move clip, prune) can't leave a half-applied
+  timeline.
+- **Decoding:** `ReaderPool` keeps one decoder per (file, track), created on demand and evicted
+  least-recently-used beyond 16. A file visible on two tracks at once (a clip and its own
+  B-roll copy) gets two decoders, each moving forward, instead of one seeking back and forth
+  every frame. Used by both the preview and the export worker.
+- **Scrolling:** the wheel scrolls the track area vertically when tracks overflow the panel
+  (the ruler stays fixed); horizontal wheel/trackpad gestures, or Shift+wheel, scroll time.
+- **Accessibility:** a visually hidden list (`TrackList.tsx`) describes every track and clip
+  with times for screen readers; the browser tests use it too.
+
 ## Timeline thumbnails
 
 Video clips show a filmstrip (`apps/web/src/thumbnails`):
