@@ -17,7 +17,8 @@ leaves your machine.
 - Sample-accurate A/V sync: picture follows the audio clock
 - Export to MP4 (H.264) or WebM (VP9) from 480p to 4K at 24–60 fps, rendered faster than real
   time in the background, with progress, ETA and cancel
-- Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom
+- Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom, with video
+  thumbnails (filmstrip) on every clip
 - Frame-accurate preview, rendered off the main thread
 - Projects saved automatically in the browser, media included; reopen, rename, delete and relink
   missing media
