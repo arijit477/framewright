@@ -4,16 +4,23 @@ import { TimelineEngine } from '../engine/engine';
 import { clipEnd, type Clip, type TimelineSnapshot } from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
-import type { AssetInfo, RendererBackend } from '../render/protocol';
+import type { ProjectAsset } from '../project/document';
+import type { RendererBackend } from '../render/protocol';
 import type { View } from '../timeline/geometry';
 
 const MAX_HISTORY = 100;
+
+/** An imported media file. `missing` means its data isn't available (needs relinking). */
+export type EditorAsset = ProjectAsset & { missing: boolean };
+
+/** Notifications for the project layer (autosave, media storage). */
+export type EditorEvent = { type: 'changed' } | { type: 'assetAdded'; id: string; file: File };
 
 export interface EditorState {
   ready: boolean;
   timeline: TimelineSnapshot;
   duration: number;
-  assets: Record<string, AssetInfo>;
+  assets: Record<string, EditorAsset>;
   /** Waveform peaks per asset (see audio/protocol.ts PEAKS_PER_SECOND). */
   peaks: Record<string, Float32Array>;
   playhead: number;
@@ -65,14 +72,27 @@ const assetFiles = new Map<string, File>();
 const undoStack: string[] = [];
 const redoStack: string[] = [];
 
+const listeners = new Set<(event: EditorEvent) => void>();
+export function subscribeEditor(listener: (event: EditorEvent) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+function emit(event: EditorEvent) {
+  for (const listener of listeners) listener(event);
+}
+
 export async function initEditor(): Promise<void> {
   if (engine) return;
   engine = await TimelineEngine.create();
   engine.addTrack('video');
   engine.addTrack('audio');
+  EMPTY_TIMELINE = engine.save();
   set({ ready: true, audioClock: audio.available });
   refresh();
 }
+
+/** A new project's timeline: one video and one audio track. */
+let EMPTY_TIMELINE = '';
 
 function requireEngine(): TimelineEngine {
   if (!engine) throw new Error('Engine not initialised');
@@ -116,6 +136,7 @@ export function edit(operation: (engine: TimelineEngine) => void): boolean {
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack.length = 0;
   refresh();
+  emit({ type: 'changed' });
   return true;
 }
 
@@ -127,6 +148,7 @@ export function undo() {
   e.load(previous);
   set({ selectedClipId: null });
   refresh();
+  emit({ type: 'changed' });
 }
 
 export function redo() {
@@ -136,6 +158,7 @@ export function redo() {
   undoStack.push(e.save());
   e.load(next);
   refresh();
+  emit({ type: 'changed' });
 }
 
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,6 +175,36 @@ const MEDIA_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|mp3|m4a|aac|wav|ogg|opus|flac)
 const isMedia = (f: File) =>
   f.type.startsWith('video/') || f.type.startsWith('audio/') || MEDIA_EXTENSIONS.test(f.name);
 
+/**
+ * Probe a file in both workers (in parallel) and describe it. The workers keep
+ * their decoders for `id`, so the asset is playable as soon as this resolves.
+ */
+async function probeAsset(id: string, file: File): Promise<EditorAsset> {
+  const [visual, sound] = await Promise.all([
+    renderer.addAsset(id, file),
+    audio.addAsset(id, file).catch((error: unknown) => {
+      notify('error', `${file.name}: audio could not be read (${String(error)})`);
+      return { hasAudio: false, durationUs: 0 };
+    }),
+  ]);
+  if (!visual.hasVideo && !sound.hasAudio) throw new Error('no playable video or audio found');
+  return {
+    id,
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    lastModified: file.lastModified,
+    width: visual.width,
+    height: visual.height,
+    codec: visual.codec,
+    hasVideo: visual.hasVideo,
+    hasAudio: sound.hasAudio,
+    // Video length decides a video clip; audio-only files use the audio length.
+    durationUs: visual.hasVideo ? visual.durationUs : sound.durationUs,
+    missing: false,
+  };
+}
+
 export async function importFiles(files: Iterable<File>) {
   const media = [...files].filter(isMedia);
   if (media.length === 0) {
@@ -162,25 +215,10 @@ export async function importFiles(files: Iterable<File>) {
     set((s) => ({ importing: s.importing + 1 }));
     try {
       const id = crypto.randomUUID();
-      // Video and audio are probed in parallel by their own workers.
-      const [visual, sound] = await Promise.all([
-        renderer.addAsset(id, file),
-        audio.addAsset(id, file).catch((error: unknown) => {
-          notify('error', `${file.name}: audio could not be read (${String(error)})`);
-          return { hasAudio: false, durationUs: 0 };
-        }),
-      ]);
-      if (!visual.hasVideo && !sound.hasAudio) {
-        throw new Error('no playable video or audio found');
-      }
-      const asset: AssetInfo = {
-        ...visual,
-        hasAudio: sound.hasAudio,
-        // Video length decides a video clip; audio-only files use the audio length.
-        durationUs: visual.hasVideo ? visual.durationUs : sound.durationUs,
-      };
+      const asset = await probeAsset(id, file);
       assetFiles.set(id, file);
       set((s) => ({ assets: { ...s.assets, [id]: asset } }));
+      emit({ type: 'assetAdded', id, file });
       const kind = asset.hasVideo ? 'video' : 'audio';
       const track = get().timeline.tracks.find((t) => t.kind === kind);
       if (track) edit((e) => e.appendClip(track.id, id, asset.durationUs));
@@ -192,17 +230,107 @@ export async function importFiles(files: Iterable<File>) {
   }
 }
 
+/** Provide the data for a missing asset. Returns false if the file doesn't fit. */
+export async function relinkAsset(id: string, file: File): Promise<boolean> {
+  const previous = get().assets[id];
+  if (!previous) return false;
+  try {
+    const asset = await probeAsset(id, file);
+    if (previous.hasVideo && !asset.hasVideo) {
+      throw new Error('it has no video, but the clips using it need video');
+    }
+    assetFiles.set(id, file);
+    set((s) => ({ assets: { ...s.assets, [id]: asset } }));
+    emit({ type: 'assetAdded', id, file });
+    emit({ type: 'changed' });
+    requestFrame();
+    return true;
+  } catch (error) {
+    notify('error', `${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------- project state
+
+/** Everything the project file needs from the editor. */
+export function snapshotProject() {
+  const e = requireEngine();
+  const assets = Object.values(get().assets).map(({ missing: _missing, ...asset }) => asset);
+  return { timeline: JSON.parse(e.save()) as unknown, durationUs: e.duration(), assets };
+}
+
+/**
+ * Replace the editor contents with a project. Media with no file is marked
+ * missing; its clips stay on the timeline (black and silent) until relinked.
+ * Throws if the timeline is invalid, leaving the current project untouched.
+ */
+export async function loadProject(project: {
+  timeline: unknown;
+  assets: ProjectAsset[];
+  files: ReadonlyMap<string, File>;
+}): Promise<void> {
+  const e = requireEngine();
+  // Validate first so a bad project never replaces a good one.
+  const json = project.timeline === null ? null : JSON.stringify(project.timeline);
+  const fresh = await TimelineEngine.create();
+  try {
+    if (json) fresh.load(json);
+  } finally {
+    fresh.free();
+  }
+
+  pause();
+  renderer.clearAssets();
+  audio.clearAssets();
+  assetFiles.clear();
+  undoStack.length = 0;
+  redoStack.length = 0;
+  if (json) {
+    e.load(json);
+  } else {
+    e.load(EMPTY_TIMELINE);
+  }
+  const assets: Record<string, EditorAsset> = {};
+  for (const asset of project.assets) assets[asset.id] = { ...asset, missing: true };
+  set({
+    assets,
+    peaks: {},
+    playhead: 0,
+    selectedClipId: null,
+    view: { pxPerSecond: 60, scrollUs: 0 },
+  });
+  refresh();
+
+  // Re-open the media in the workers.
+  await Promise.all(
+    project.assets.map(async ({ id }) => {
+      const file = project.files.get(id);
+      if (!file) return;
+      try {
+        const asset = await probeAsset(id, file);
+        assetFiles.set(id, file);
+        set((s) => ({ assets: { ...s.assets, [id]: asset } }));
+      } catch {
+        // Unreadable stored copy: leave it marked missing so the user can relink.
+      }
+    }),
+  );
+  requestFrame();
+}
+
 /** What an export needs: the saved project and the files its clips use. */
 export function projectForExport() {
   const e = requireEngine();
   const used = new Set(get().timeline.tracks.flatMap((t) => t.clips.map((c) => c.assetId)));
+  const missing = [...used].filter((id) => get().assets[id]?.missing).length;
   const assets = [...used].flatMap((id) => {
     const file = assetFiles.get(id);
     return file ? [{ id, file }] : [];
   });
   const firstClip = get().timeline.tracks.flatMap((t) => t.clips)[0];
   const baseName = (firstClip && get().assets[firstClip.assetId]?.name) ?? 'framewright-export';
-  return { projectJson: e.save(), assets, baseName, durationUs: e.duration() };
+  return { projectJson: e.save(), assets, baseName, durationUs: e.duration(), missing };
 }
 
 // ---------------------------------------------------------------- playback

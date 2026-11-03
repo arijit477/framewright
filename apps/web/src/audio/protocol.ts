@@ -7,6 +7,8 @@ export const PEAKS_PER_SECOND = 100;
 export type ToAudioWorker =
   | { type: 'init'; buffers: RingBuffers; sampleRate: number }
   | { type: 'addAsset'; id: string; file: File }
+  /** Drop every asset (switching projects). */
+  | { type: 'clearAssets' }
   | { type: 'start'; epoch: number; fromUs: number; segments: AudioSegment[] }
   | { type: 'update'; epoch: number; segments: AudioSegment[] }
   | { type: 'stop' };

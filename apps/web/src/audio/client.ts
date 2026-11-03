@@ -52,6 +52,11 @@ export class AudioOutput {
     });
   }
 
+  /** Release every decoder (e.g. when another project is opened). */
+  clearAssets(): void {
+    if (this.available) this.post({ type: 'clearAssets' });
+  }
+
   onPeaks(listener: (id: string, peaks: Float32Array) => void) {
     this.peaksListener = listener;
   }
