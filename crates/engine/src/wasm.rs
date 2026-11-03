@@ -74,6 +74,17 @@ impl Engine {
         Ok(self.timeline.add_track(kind))
     }
 
+    #[wasm_bindgen(js_name = removeTrack)]
+    pub fn remove_track(&mut self, track_id: u32) -> Result<(), JsError> {
+        self.timeline.remove_track(track_id).map_err(err)
+    }
+
+    /// Remove empty tracks (keeping at least one of each kind); returns their ids.
+    #[wasm_bindgen(js_name = pruneEmptyTracks)]
+    pub fn prune_empty_tracks(&mut self) -> Vec<u32> {
+        self.timeline.prune_empty_tracks()
+    }
+
     #[wasm_bindgen(js_name = appendClip)]
     pub fn append_clip(
         &mut self,

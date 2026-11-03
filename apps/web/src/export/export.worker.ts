@@ -22,6 +22,7 @@ import {
   VideoSampleSink,
   WebMOutputFormat,
   type InputAudioTrack,
+  type InputVideoTrack,
   type VideoSample,
 } from 'mediabunny';
 import { Mixer } from '../audio/mixer';
@@ -30,6 +31,7 @@ import { TimelineEngine } from '../engine/engine';
 import { openAsset } from '../media/asset';
 import { createCompositor } from '../render/compositor';
 import { FrameReader } from '../render/frame-reader';
+import { ReaderPool } from '../render/reader-pool';
 import type { ExportAsset, FromExportWorker, ToExportWorker } from './protocol';
 import {
   AUDIO_CODECS,
@@ -73,7 +75,11 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
   const startedAt = performance.now();
   const warnings: string[] = [];
   const engine = await TimelineEngine.fromJson(projectJson);
-  const readers = new Map<string, FrameReader>();
+  const videoTracks = new Map<string, InputVideoTrack>();
+  const readers = new ReaderPool((assetId) => {
+    const track = videoTracks.get(assetId);
+    return track ? new FrameReader(new VideoSampleSink(track)) : null;
+  });
   const audioTracks = new Map<string, InputAudioTrack>();
   let mixer: Mixer | null = null;
   let output: Output | null = null;
@@ -85,7 +91,7 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
     // Open every asset the project uses.
     for (const { id, file } of assets) {
       const { video, audio } = await openAsset(file);
-      if (video) readers.set(id, new FrameReader(new VideoSampleSink(video)));
+      if (video) videoTracks.set(id, video);
       if (audio) audioTracks.set(id, audio);
     }
 
@@ -157,7 +163,9 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
       // Video: resolve the layers, decode, composite, encode.
       const layers = engine.resolve(frameTimeUs(i, settings.fps));
       const decoded = await Promise.all(
-        layers.map((layer) => readers.get(layer.assetId)?.frameAt(layer.sourceTime / 1_000_000)),
+        layers.map((layer) =>
+          readers.get(layer.assetId, layer.trackIndex)?.frameAt(layer.sourceTime / 1_000_000),
+        ),
       );
       compositor.draw(decoded.filter((f): f is VideoSample => f != null));
       await videoSource.add(i / settings.fps, 1 / settings.fps);
@@ -229,7 +237,7 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
     throw error;
   } finally {
     mixer?.dispose();
-    await Promise.all([...readers.values()].map((r) => r.dispose()));
+    await readers.clear();
     engine.free();
   }
 }

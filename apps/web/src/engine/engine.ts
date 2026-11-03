@@ -40,6 +40,15 @@ export class TimelineEngine {
     return this.inner.addTrack(kind);
   }
 
+  removeTrack(trackId: number): void {
+    this.inner.removeTrack(trackId);
+  }
+
+  /** Remove empty tracks, keeping at least one of each kind. Returns removed ids. */
+  pruneEmptyTracks(): number[] {
+    return Array.from(this.inner.pruneEmptyTracks());
+  }
+
   appendClip(trackId: number, assetId: string, sourceDuration: number): number {
     return this.inner.appendClip(trackId, assetId, sourceDuration);
   }

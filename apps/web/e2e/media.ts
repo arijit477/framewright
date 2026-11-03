@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '.fixtures');
 
-export const FIXTURES = { video: 'tone.webm', audio: 'music.wav' } as const;
+export const FIXTURES = { video: 'tone.webm', audio: 'music.wav', overlay: 'red.webm' } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 
 export interface ProbeResult {
@@ -61,4 +61,51 @@ export function peakDb(path: string): number {
 /** Errors reported by ffmpeg while fully decoding the file (empty = clean). */
 export function decodeErrors(path: string): string {
   return ffmpegLog(['-v', 'error', '-i', path, '-f', 'null', '-']).trim();
+}
+
+/**
+ * One video frame at `seconds`, cropped and scaled, as raw RGB bytes. Used to
+ * check what an exported file shows at a given moment.
+ */
+export function frameRgb(
+  path: string,
+  seconds: number,
+  {
+    crop = 'iw:ih:0:0',
+    width = 32,
+    height = 18,
+  }: { crop?: string; width?: number; height?: number } = {},
+): Buffer {
+  return execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-ss',
+    String(seconds),
+    '-i',
+    path,
+    '-frames:v',
+    '1',
+    '-vf',
+    `crop=${crop},scale=${width}:${height}:flags=area`,
+    '-f',
+    'rawvideo',
+    '-pix_fmt',
+    'rgb24',
+    '-',
+  ]);
+}
+
+/** Average colour of a frame region. */
+export function averageRgb(rgb: Buffer): [number, number, number] {
+  const sum = [0, 0, 0];
+  for (let i = 0; i < rgb.length; i += 3) for (let c = 0; c < 3; c++) sum[c]! += rgb[i + c]!;
+  const n = rgb.length / 3;
+  return [sum[0]! / n, sum[1]! / n, sum[2]! / n];
+}
+
+/** Mean absolute difference between two frames of the same size (0–255). */
+export function frameDifference(a: Buffer, b: Buffer): number {
+  let total = 0;
+  for (let i = 0; i < a.length; i++) total += Math.abs(a[i]! - b[i]!);
+  return total / a.length;
 }

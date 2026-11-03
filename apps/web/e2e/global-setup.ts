@@ -21,6 +21,11 @@ export default function globalSetup() {
     '-f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=440:sample_rate=44100 ' +
       '-t 6 -c:v libvpx-vp9 -b:v 1M -deadline realtime -c:a libopus -b:a 96k -shortest',
   );
+  // 3 s solid red video (no audio): an overlay that's easy to spot in a frame.
+  make(
+    FIXTURES.overlay,
+    '-f lavfi -i color=c=red:size=1280x720:rate=30 -t 3 -c:v libvpx-vp9 -b:v 200k -deadline realtime',
+  );
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.
   make(
     FIXTURES.audio,
