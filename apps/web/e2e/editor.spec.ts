@@ -1,0 +1,53 @@
+import { expect, test } from '@playwright/test';
+import { EditorPage } from './editor-page';
+import { FIXTURES } from './media';
+
+test.describe('editing', () => {
+  let editor: EditorPage;
+
+  test.beforeEach(async ({ page }) => {
+    editor = new EditorPage(page);
+    await editor.goto();
+    await editor.importFixtures(FIXTURES.video, FIXTURES.audio);
+  });
+
+  test('imports video and audio onto their tracks', async () => {
+    expect((await editor.times()).duration).toBeCloseTo(6, 1);
+    await expect(editor.page.locator('.status')).toContainText('audio clock');
+  });
+
+  test('split, delete and undo', async () => {
+    await editor.seekTo(3);
+    await editor.press('s');
+    await editor.clickClip(0, 4.5); // right half
+    await editor.press('Delete');
+    // The audio clip (4 s) now defines the end of the timeline.
+    await expect.poll(async () => (await editor.times()).duration).toBeCloseTo(4, 1);
+    await editor.press('Control+z');
+    await expect.poll(async () => (await editor.times()).duration).toBeCloseTo(6, 1);
+  });
+
+  test('playback follows the audio clock and produces sound', async () => {
+    await editor.press('Space');
+    await editor.page.waitForTimeout(1500);
+    const level = await editor.meterLevel();
+    await editor.press('Space');
+    const { playhead } = await editor.times();
+    // Real time, give or take audio start-up latency.
+    expect(playhead).toBeGreaterThan(1.0);
+    expect(playhead).toBeLessThan(2.0);
+    expect(level).toBeGreaterThan(0.05);
+    expect(await editor.status()).toContain('audio clock');
+  });
+
+  test('a muted clip is silent', async () => {
+    await editor.clickClip(0, 5); // video clip
+    await editor.press('m');
+    await editor.seekTo(4.5); // after the WAV ends
+    await editor.press('Space');
+    await editor.page.waitForTimeout(700);
+    const level = await editor.meterLevel();
+    await editor.press('Space');
+    expect(level).toBeLessThan(0.001);
+  });
+});
