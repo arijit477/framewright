@@ -207,3 +207,75 @@ export function clipsInRect(timeline: TimelineSnapshot, view: View, rect: Rect):
   }
   return ids;
 }
+
+/** A key that moves the keyboard selection on the timeline. */
+export type ClipStep = 'previous' | 'next' | 'up' | 'down' | 'first' | 'last';
+
+/**
+ * The clip a key moves to from `currentId` (in display rows, top first):
+ * - previous / next: the clip before or after it on the same row;
+ * - up / down: on the nearest row above or below that has clips, the clip
+ *   overlapping the current one's middle, or else the closest in time;
+ * - first / last: the first or last clip on the same row.
+ * With no current clip, it starts from the playhead: the first row's clip
+ * under it, or else the first clip on the timeline. Null if there's nowhere to go.
+ */
+export function stepClip(
+  timeline: TimelineSnapshot,
+  currentId: number | null,
+  step: ClipStep,
+  playhead: number,
+): number | null {
+  const rows = trackRows(timeline).map((t) => t.clips);
+  const row = rows.findIndex((clips) => clips.some((c) => c.id === currentId));
+  if (row < 0) {
+    for (const clips of rows) {
+      const under = clips.find((c) => c.start <= playhead && playhead < clipEnd(c));
+      if (under) return under.id;
+    }
+    return rows.find((clips) => clips.length > 0)?.[0]?.id ?? null;
+  }
+  const clips = rows[row]!;
+  const index = clips.findIndex((c) => c.id === currentId);
+  const current = clips[index]!;
+  switch (step) {
+    case 'previous':
+      return clips[index - 1]?.id ?? null;
+    case 'next':
+      return clips[index + 1]?.id ?? null;
+    case 'first':
+      return clips[0]!.id;
+    case 'last':
+      return clips.at(-1)!.id;
+    case 'up':
+    case 'down': {
+      const middle = (current.start + clipEnd(current)) / 2;
+      const direction = step === 'up' ? -1 : 1;
+      for (let r = row + direction; r >= 0 && r < rows.length; r += direction) {
+        const candidates = rows[r]!;
+        if (candidates.length === 0) continue;
+        const distance = (c: Clip) =>
+          middle < c.start ? c.start - middle : middle >= clipEnd(c) ? middle - clipEnd(c) : 0;
+        return candidates.reduce((best, c) => (distance(c) < distance(best) ? c : best)).id;
+      }
+      return null;
+    }
+  }
+}
+
+/**
+ * Track names as other editors number them: Video 1 is the bottom layer,
+ * Audio 1 the first audio track. By track id.
+ */
+export function trackNames(timeline: TimelineSnapshot): Map<number, string> {
+  const rows = trackRows(timeline);
+  const videoCount = rows.filter((t) => t.kind === 'video').length;
+  let videoSeen = 0;
+  let audioSeen = 0;
+  return new Map(
+    rows.map((t) => [
+      t.id,
+      t.kind === 'video' ? `Video ${videoCount - videoSeen++}` : `Audio ${++audioSeen}`,
+    ]),
+  );
+}

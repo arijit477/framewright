@@ -48,9 +48,10 @@ leaves your machine.
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
   <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove (<kbd>Shift</kbd>+<kbd>Delete</kbd> closes the gap), <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy/cut/paste, <kbd>Ctrl/⌘</kbd>+<kbd>D</kbd> duplicate, <kbd>Ctrl/⌘</kbd>+<kbd>A</kbd> select all, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
-  <kbd>Ctrl/⌘</kbd>+scroll to zoom
+  <kbd>Ctrl/⌘</kbd>+scroll to zoom; <kbd>Tab</kbd> into the timeline, then the arrow keys,
+  <kbd>Home</kbd>/<kbd>End</kbd> and <kbd>Shift</kbd>+arrows to select clips
 
-Coming next: local AI auto-captions, and keyboard selection of clips.
+Coming next: local AI auto-captions, and moving clips from the keyboard.
 
 ## Architecture at a glance
 

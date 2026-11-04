@@ -51,6 +51,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Already handled by a focused control (e.g. the timeline's arrow keys).
+      if (event.defaultPrevented) return;
       const mod = event.ctrlKey || event.metaKey;
       // Save and export work everywhere, even while typing: they never conflict
       // with editing text, and pending edits are flushed first.

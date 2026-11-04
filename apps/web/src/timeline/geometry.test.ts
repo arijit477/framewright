@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TimelineSnapshot } from '../engine/types';
 import { secondsToMicros } from '../lib/time';
 import {
+  stepClip,
   clipsInRect,
   dropTarget,
   rectBetween,
@@ -266,5 +267,54 @@ describe('selection box', () => {
     // Within a row's time range but in the gap between rows.
     const gapTop = trackTop(1) - 5;
     expect(clipsInRect(multi, view, rectBetween(x(0), gapTop, x(1), gapTop + 2))).toEqual([]);
+  });
+});
+
+describe('stepClip (keyboard selection)', () => {
+  const S = 1_000_000;
+  const clip = (id: number, start: number, seconds: number) => ({
+    ...timeline.tracks[0]!.clips[0]!,
+    id,
+    start: start * S,
+    duration: seconds * S,
+  });
+  // Display rows: V2 (5 at 4-6 s), V1 (1 at 0-2, 2 at 3-4, 3 at 7-9), A1 (empty), A2 (4 at 1-2 s).
+  const multi: TimelineSnapshot = {
+    tracks: [
+      { id: 10, kind: 'video', clips: [clip(1, 0, 2), clip(2, 3, 1), clip(3, 7, 2)] },
+      { id: 11, kind: 'audio', clips: [] },
+      { id: 12, kind: 'audio', clips: [clip(4, 1, 1)] },
+      { id: 13, kind: 'video', clips: [clip(5, 4, 2)] },
+    ],
+  };
+  const step = (from: number | null, s: Parameters<typeof stepClip>[2], playhead = 0) =>
+    stepClip(multi, from, s, playhead);
+
+  it('moves along a row, stopping at the ends', () => {
+    expect(step(1, 'next')).toBe(2);
+    expect(step(2, 'previous')).toBe(1);
+    expect(step(1, 'previous')).toBeNull();
+    expect(step(3, 'next')).toBeNull();
+    expect(step(2, 'first')).toBe(1);
+    expect(step(1, 'last')).toBe(3);
+  });
+
+  it('moves between rows to the clip nearest in time, skipping empty rows', () => {
+    // Clip 5's middle is 5 s: 1 s from clip 2 (3-4 s), 2 s from clip 3 (7-9 s).
+    expect(step(5, 'down')).toBe(2);
+    // Clip 2's middle (3.5 s) to the audio rows: the empty one is skipped, clip 4 (1-2 s).
+    expect(step(2, 'down')).toBe(4);
+    // Clip 4's middle (1.5 s) lies inside clip 1 (0-2 s).
+    expect(step(4, 'up')).toBe(1);
+    expect(step(1, 'up')).toBe(5);
+    expect(step(5, 'up')).toBeNull();
+    expect(step(4, 'down')).toBeNull();
+  });
+
+  it('starts from the playhead when nothing is selected', () => {
+    expect(step(null, 'next', 5 * S)).toBe(5); // under the playhead on the top row
+    expect(step(null, 'next', 8 * S)).toBe(3); // the top row has nothing there
+    expect(step(null, 'next', 20 * S)).toBe(5); // nothing under it: the first clip
+    expect(stepClip({ tracks: [] }, null, 'next', 0)).toBeNull();
   });
 });
