@@ -4,6 +4,7 @@ import {
   copySelected,
   cutSelected,
   deleteSelected,
+  duplicateSelected,
   paste,
   selectAll,
   importFiles,
@@ -75,9 +76,13 @@ export function App() {
       }
       // Clipboard and select all (after the text-field check above, so those keep working there).
       if (mod && !event.shiftKey && !event.altKey) {
-        const action = { a: selectAll, c: copySelected, x: cutSelected, v: paste }[
-          event.key.toLowerCase()
-        ];
+        const action = {
+          a: selectAll,
+          c: copySelected,
+          d: duplicateSelected,
+          x: cutSelected,
+          v: paste,
+        }[event.key.toLowerCase()];
         if (action) {
           event.preventDefault();
           action();

@@ -181,6 +181,11 @@ export class TimelineEngine {
     return Array.from(this.inner.pasteClips(copied, at));
   }
 
+  /** Open a gap of `length` µs at `at` on the given tracks; later clips move along. */
+  insertSpace(trackIds: number[], at: number, length: number): void {
+    this.inner.insertSpace(Uint32Array.from(trackIds), at, length);
+  }
+
   /** Remove a clip and move the later clips on its track back by its length. */
   rippleDelete(clipId: number): void {
     this.inner.rippleDelete(clipId);

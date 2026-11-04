@@ -270,8 +270,9 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
 - **Engine:** `move_clips` (one time shift for many clips, all or nothing), `copy_clips` /
   `paste_clips` (clips with their tracks, relative times; paste reuses the original tracks if
   there's room, otherwise adds tracks, never overwrites).
-- **UI:** dragging a selected clip moves the group (previewed live). Delete, cut, copy and paste
-  work on the selection; pasted clips are selected.
+- **UI:** dragging a selected clip moves the group (previewed live). Delete, cut, copy, paste
+  and duplicate (Ctrl/⌘+D: right after the selection, inserting with `insert_space` when ripple is
+  on) work on the selection; pasted and duplicated clips are selected.
 
 ## Ripple editing
 

@@ -660,6 +660,29 @@ export function copySelected(): boolean {
   return true;
 }
 
+/**
+ * Duplicate the selection right after itself (Ctrl/⌘+D), keeping spacing and
+ * tracks, and select the copies. With ripple on, the copies are inserted:
+ * later clips on those tracks move along. Otherwise, like paste, they go on a
+ * new track where the space is taken. One undo step; the clipboard is untouched.
+ */
+export function duplicateSelected(): void {
+  const { selectedClipIds, timeline, ripple } = get();
+  if (selectedClipIds.length === 0) return;
+  const selected = timeline.tracks.flatMap((t) =>
+    t.clips.filter((c) => selectedClipIds.includes(c.id)).map((clip) => ({ clip, track: t.id })),
+  );
+  const start = Math.min(...selected.map(({ clip }) => clip.start));
+  const end = Math.max(...selected.map(({ clip }) => clipEnd(clip)));
+  let ids: number[] = [];
+  const duplicated = edit((e) => {
+    const copied = e.copyClips(selectedClipIds);
+    if (ripple) e.insertSpace([...new Set(selected.map((s) => s.track))], end, end - start);
+    ids = e.pasteClips(copied, end);
+  });
+  if (duplicated) set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
+}
+
 /** Copy, then delete (Ctrl/⌘+X; ripples if ripple editing is on). */
 export function cutSelected(): void {
   if (copySelected()) deleteSelected();

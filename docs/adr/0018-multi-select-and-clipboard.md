@@ -35,7 +35,7 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
 ## Consequences
 
 - No project format change.
-- Not yet: moving a selection across tracks, duplicate,
+- Not yet: moving a selection across tracks,
   editing several clips' settings at once, and pasting between tabs (the system clipboard
   would also need the media).
 
@@ -55,3 +55,15 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
   the playhead.
 - The box is mouse-only. Keyboard selection of clips (the timeline is a canvas) is a separate
   accessibility item.
+
+## Addendum: duplicate
+
+- Ctrl/⌘+D (or the Duplicate button) copies the selection with the engine's `copy_clips` and
+  pastes it with `paste_clips` right after itself: the earliest copy starts where the selection
+  ends, spacing and tracks kept. The copies become the selection. It's one undo step, and the
+  clipboard is left alone.
+- Without ripple, it behaves like paste: copies that don't fit go on a new track, never over
+  existing clips.
+- With ripple on, it inserts. The engine's new `insert_space(tracks, at, length)` first opens a
+  gap the length of the selection on the selection's tracks (later clips move along), so the
+  copies land in line. It refuses, changing nothing, when a clip runs across the insertion point.
