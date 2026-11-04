@@ -1,5 +1,6 @@
 import type { Layer } from '../engine/types';
 import type { DrawItem } from './compositor';
+import { NEUTRAL_COLOR } from './color';
 import { transitionEffect } from './transition';
 import type { FrameReader } from './frame-reader';
 import type { ReaderPool } from './reader-pool';
@@ -31,6 +32,7 @@ export async function drawItems(
             kind: 'video',
             sample,
             transform: layer.transform,
+            color: layer.color ?? NEUTRAL_COLOR,
             effect: transitionEffect(layer.transition),
           }
         : null;

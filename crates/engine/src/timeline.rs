@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::color::{ColorAdjust, ColorError};
 use crate::keyframe::{self, Easing, Keyframe, KeyframeError, ResolvedTransform};
 use crate::text::{TextContent, TextError};
 use crate::transform::{Transform, TransformError};
@@ -63,6 +64,9 @@ pub struct Clip {
     /// they decide the transform and `transform` is unused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keyframes: Vec<Keyframe>,
+    /// Colour adjustments of a media clip; omitted when unchanged.
+    #[serde(default, skip_serializing_if = "ColorAdjust::is_neutral")]
+    pub color: ColorAdjust,
     /// Transition from the clip directly before this one on the same track.
     /// Inactive (ignored) while the clips aren't touching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,6 +143,9 @@ pub struct Layer {
     /// Placement of a media clip at this moment (identity for text, which uses
     /// its style). Fractional while keyframes animate it.
     pub transform: ResolvedTransform,
+    /// Colour adjustments (omitted when unchanged).
+    #[serde(default, skip_serializing_if = "ColorAdjust::is_neutral")]
+    pub color: ColorAdjust,
     /// Set while the layer is part of a transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<LayerTransition>,
@@ -212,10 +219,14 @@ pub enum EditError {
     TextNeedsVideoTrack,
     #[error("invalid transform: {0}")]
     InvalidTransform(#[from] TransformError),
-    #[error("text clips are positioned with their text style, not a transform")]
-    TransformOnText,
+    #[error(
+        "text clips have no transform, keyframes or colour adjustments: style the text instead"
+    )]
+    NotMedia,
     #[error("invalid transition: {0}")]
     InvalidTransition(#[from] TransitionError),
+    #[error("invalid colour adjustment: {0}")]
+    InvalidColor(#[from] ColorError),
     #[error("keyframe: {0}")]
     InvalidKeyframe(#[from] KeyframeError),
 }
@@ -469,6 +480,13 @@ impl Timeline {
         Ok(())
     }
 
+    /// Set a media clip's brightness, contrast and saturation.
+    pub fn set_clip_color(&mut self, clip_id: ClipId, color: ColorAdjust) -> Result<(), EditError> {
+        color.validate()?;
+        self.media_clip_mut(clip_id)?.color = color;
+        Ok(())
+    }
+
     /// A media clip's transform at timeline time `at` (animated if it has
     /// keyframes; held before the first and after the last).
     pub fn clip_transform_at(
@@ -479,17 +497,17 @@ impl Timeline {
         let (t, c) = self.locate(clip_id)?;
         let clip = &self.tracks[t].clips[c];
         if clip.text.is_some() {
-            return Err(EditError::TransformOnText);
+            return Err(EditError::NotMedia);
         }
         Ok(clip_transform(clip, at))
     }
 
-    /// A clip that can have a transform (not text).
+    /// A clip that can have a transform, keyframes and colour adjustments (not text).
     fn media_clip_mut(&mut self, clip_id: ClipId) -> Result<&mut Clip, EditError> {
         let (t, c) = self.locate(clip_id)?;
         let clip = &mut self.tracks[t].clips[c];
         if clip.text.is_some() {
-            return Err(EditError::TransformOnText);
+            return Err(EditError::NotMedia);
         }
         Ok(clip)
     }
@@ -524,6 +542,7 @@ impl Timeline {
             text,
             transform: Transform::default(),
             keyframes: Vec::new(),
+            color: ColorAdjust::default(),
             transition_in: None,
         });
         Ok(id)
@@ -864,6 +883,7 @@ fn clip_layer(
         clip_duration: clip.duration,
         text: clip.text.clone(),
         transform: clip_transform(clip, at),
+        color: clip.color,
         transition,
     }
 }
@@ -1203,7 +1223,7 @@ mod tests {
         let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
         assert_eq!(
             tl.set_clip_transform(text, Transform::default()),
-            Err(EditError::TransformOnText)
+            Err(EditError::NotMedia)
         );
     }
 
@@ -1516,10 +1536,7 @@ mod tests {
             Err(EditError::InvalidKeyframe(KeyframeError::NotFound))
         );
         let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
-        assert_eq!(
-            tl.set_keyframe(text, 0, at_x(0)),
-            Err(EditError::TransformOnText)
-        );
+        assert_eq!(tl.set_keyframe(text, 0, at_x(0)), Err(EditError::NotMedia));
         for i in 0..keyframe::MAX_KEYFRAMES as i64 {
             tl.set_keyframe(clip, i * 1000, at_x(0)).unwrap();
         }
@@ -1552,5 +1569,35 @@ mod tests {
             .map(|k| k.source_time)
             .collect();
         assert_eq!(times, [2 * S, 3 * S]);
+    }
+
+    #[test]
+    fn colour_adjustments_are_resolved_saved_and_kept_on_split() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        assert!(tl.resolve(3 * S)[0].color.is_neutral());
+        assert!(!tl.to_json().contains("color"), "neutral is omitted");
+        let mono = ColorAdjust {
+            saturation: -100,
+            ..ColorAdjust::default()
+        };
+        tl.set_clip_color(clip, mono).unwrap();
+        assert_eq!(tl.resolve(3 * S)[0].color, mono);
+        tl.split_clip(clip, 4 * S).unwrap();
+        assert!(tl.tracks[0].clips.iter().all(|c| c.color == mono));
+        assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
+
+        let bad = ColorAdjust {
+            brightness: 101,
+            ..ColorAdjust::default()
+        };
+        assert_eq!(
+            tl.set_clip_color(clip, bad),
+            Err(EditError::InvalidColor(ColorError::OutOfRange(
+                "brightness",
+                101
+            )))
+        );
+        let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
+        assert_eq!(tl.set_clip_color(text, mono), Err(EditError::NotMedia));
     }
 }

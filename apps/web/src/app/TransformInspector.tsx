@@ -3,6 +3,7 @@ import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { roundTransform } from '../lib/keyframes';
 import { registerPendingEdits } from '../lib/pending-edits';
+import { ColorField } from './ColorField';
 import { KeyframeField } from './KeyframeField';
 import { TransitionField } from './TransitionField';
 import { clipTransformAt, resetTransform, setClipTransform, useEditor } from '../store/editor';
@@ -142,14 +143,16 @@ export function TransformInspector({ clip }: { clip: Clip }) {
         disabled={!animated && savedKey === JSON.stringify(IDENTITY_TRANSFORM)}
         title={animated ? 'Reset the transform and remove all keyframes' : undefined}
       >
-        Reset
+        Reset transform
       </button>
       <p className="muted inspector-tip">Tip: drag the clip in the preview to move it.</p>
+
+      <ColorField clip={clip} />
     </aside>
   );
 }
 
-function Slider(props: {
+export function Slider(props: {
   label: string;
   unit: string;
   value: number;

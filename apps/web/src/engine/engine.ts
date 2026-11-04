@@ -1,6 +1,7 @@
 import init, { Engine } from '@framewright/engine';
 import type {
   AudioSegment,
+  ColorAdjust,
   Easing,
   Layer,
   Micros,
@@ -93,6 +94,10 @@ export class TimelineEngine {
 
   setClipTransform(clipId: number, transform: Transform): void {
     this.inner.setClipTransform(clipId, transform);
+  }
+
+  setClipColor(clipId: number, color: ColorAdjust): void {
+    this.inner.setClipColor(clipId, color);
   }
 
   /** Add or update the keyframe at `sourceTime` (in the clip's media). */

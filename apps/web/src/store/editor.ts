@@ -5,6 +5,7 @@ import {
   clipEnd,
   IDENTITY_TRANSFORM,
   type Clip,
+  type ColorAdjust,
   type Easing,
   type Micros,
   type TextContent,
@@ -674,6 +675,11 @@ export function resetTransform(clipId: number): boolean {
     e.clearKeyframes(clipId);
     e.setClipTransform(clipId, IDENTITY_TRANSFORM);
   });
+}
+
+/** Set a media clip's brightness, contrast and saturation. */
+export function setClipColor(clipId: number, color: ColorAdjust): boolean {
+  return edit((e) => e.setClipColor(clipId, color));
 }
 
 export function setKeyframeEasing(clipId: number, sourceTime: Micros, easing: Easing): boolean {

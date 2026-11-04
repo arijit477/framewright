@@ -24,6 +24,8 @@ leaves your machine.
   position and fade/slide/pop animations, rendered identically in preview and export
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
+- Filters: brightness, contrast and saturation per clip, with one-click looks (black & white,
+  vivid, moody…), identical in preview and export
 - Keyframes: animate a clip's transform (zooms, pans, moving picture-in-picture, fades) with
   easing; keyframes stay with the footage when you trim or split
 - Transitions between clips: crossfade, dip, slide and wipe, with adjustable length; the
@@ -41,7 +43,7 @@ leaves your machine.
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: filters, speed control, and local AI auto-captions.
+Coming next: speed control, LUTs, and local AI auto-captions.
 
 ## Architecture at a glance
 

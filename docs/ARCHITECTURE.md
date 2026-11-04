@@ -277,6 +277,19 @@ easing }]`, sorted, at times in its _source media_, so trims and splits keep the
   easing and removes them all (keeping the current look). The timeline marks keyframes with
   diamonds; the accessible track list counts them.
 
+## Colour adjustments
+
+See [ADR 0015](./adr/0015-colour-adjustments.md).
+
+- **Model (Rust, `color.rs`):** a media clip's `color: { brightness, contrast, saturation }`, each
+  -100 to 100, passed through on its layers.
+- **Rendering (`render/color.ts`):** the CSS `brightness() contrast() saturate()` maths in sRGB,
+  clamped after each step. Canvas 2D sets `ctx.filter`; the WebGPU shader repeats the steps; a
+  JavaScript pixel path covers browsers without canvas filters. `adjustRgb()` is the tested
+  reference. The export test compares real exports with it, and the WebGPU self-test checks a
+  desaturated pixel.
+- **UI:** a Color section in the clip panel with three sliders and one-click looks.
+
 ## Transitions
 
 See [ADR 0012](./adr/0012-transitions.md).

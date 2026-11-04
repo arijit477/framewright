@@ -79,10 +79,10 @@ test.describe('transforms', () => {
 
   test('reset restores the original placement', async () => {
     await editor.page.getByRole('button', { name: 'Picture in picture, top left' }).click();
-    await editor.page.getByRole('button', { name: 'Reset' }).click();
+    await editor.page.getByRole('button', { name: 'Reset transform' }).click();
     expect(await editor.sliderValue('Scale')).toBe(100);
     expect(await editor.sliderValue('Position X')).toBe(50);
-    await expect(editor.page.getByRole('button', { name: 'Reset' })).toBeDisabled();
+    await expect(editor.page.getByRole('button', { name: 'Reset transform' })).toBeDisabled();
   });
 
   test('Ctrl+E right after moving a slider exports the latest value', async () => {
