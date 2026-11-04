@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { adjustRgb, colorParams } from '../src/render/color';
+import {
+  adjustRgb,
+  colorParams,
+  NEUTRAL_COLOR,
+  whiteBalanceGains,
+  whiteBalanceRgb,
+} from '../src/render/color';
 import { applyLutRgb, parseCube } from '../src/render/lut';
 import { EditorPage } from './editor-page';
 import { averageRgb, fixture, FIXTURES, frameRgb } from './media';
@@ -70,10 +76,25 @@ test.describe('LUTs', () => {
     const before = await exportBars();
     await loadLut();
     await editor.setSlider('Saturation', -60);
-    const params = colorParams({ brightness: 0, contrast: 0, saturation: -60 });
+    const params = colorParams({ ...NEUTRAL_COLOR, saturation: -60 });
     expectBars(
       await exportBars(),
       through(before, (rgb) => adjustRgb(applyLutRgb(rgb, lut, 1), params)),
+    );
+  });
+
+  test('the whole pipeline runs in order: white balance, LUT, then tone', async () => {
+    const before = await exportBars();
+    const color = { ...NEUTRAL_COLOR, temperature: -50, saturation: -40 };
+    await loadLut();
+    await editor.setSlider('Temperature', color.temperature);
+    await editor.setSlider('Saturation', color.saturation);
+    const gains = whiteBalanceGains(color);
+    expectBars(
+      await exportBars(),
+      through(before, (rgb) =>
+        adjustRgb(applyLutRgb(whiteBalanceRgb(rgb, gains), lut, 1), colorParams(color)),
+      ),
     );
   });
 

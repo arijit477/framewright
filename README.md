@@ -24,8 +24,8 @@ leaves your machine.
   position and fade/slide/pop animations, rendered identically in preview and export
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
-- Filters: brightness, contrast and saturation per clip, with one-click looks (black & white,
-  vivid, moody…), identical in preview and export
+- Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks
+  (black & white, warm, cool, moody…), identical in preview and export
 - LUTs: load `.cube` looks (from DaVinci Resolve, Premiere and others), with adjustable intensity
 - Speed: 0.25× to 4× per clip, with the sound's pitch preserved
 - Ripple editing: delete, trim or change speed and the rest of the track moves up (or along)
@@ -48,7 +48,7 @@ leaves your machine.
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy/cut/paste, <kbd>Ctrl/⌘</kbd>+<kbd>A</kbd> select all, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: duplicate, temperature/tint, and local AI auto-captions.
+Coming next: duplicate, managing LUTs, and local AI auto-captions.
 
 ## Architecture at a glance
 

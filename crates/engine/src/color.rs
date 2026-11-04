@@ -1,4 +1,5 @@
-//! Colour adjustments for media clips: brightness, contrast and saturation.
+//! Colour adjustments for media clips: white balance (temperature and tint),
+//! brightness, contrast and saturation.
 //!
 //! Stored as integers from -100 to 100 (0 = unchanged), like other clip
 //! settings, so projects compare exactly. How each value maps to pixels is
@@ -19,6 +20,10 @@ pub struct ColorAdjust {
     pub contrast: i8,
     /// Black and white (-100) to vivid (100).
     pub saturation: i8,
+    /// Cooler, bluer (-100) to warmer, more amber (100).
+    pub temperature: i8,
+    /// Greener (-100) to more magenta (100).
+    pub tint: i8,
 }
 
 impl ColorAdjust {
@@ -31,6 +36,8 @@ impl ColorAdjust {
             ("brightness", self.brightness),
             ("contrast", self.contrast),
             ("saturation", self.saturation),
+            ("temperature", self.temperature),
+            ("tint", self.tint),
         ] {
             if !(-MAX_ADJUSTMENT..=MAX_ADJUSTMENT).contains(&value) {
                 return Err(ColorError::OutOfRange(name, value));
@@ -91,7 +98,7 @@ mod tests {
         let ok = ColorAdjust {
             brightness: -100,
             contrast: 100,
-            saturation: 0,
+            ..ColorAdjust::default()
         };
         assert_eq!(ok.validate(), Ok(()));
         let bad = ColorAdjust {
@@ -102,6 +109,18 @@ mod tests {
             bad.validate(),
             Err(ColorError::OutOfRange("saturation", -101))
         );
+        let warm = ColorAdjust {
+            temperature: 100,
+            tint: -100,
+            ..ColorAdjust::default()
+        };
+        assert_eq!(warm.validate(), Ok(()));
+        assert!(!warm.is_neutral());
+        let bad = ColorAdjust {
+            tint: 101,
+            ..ColorAdjust::default()
+        };
+        assert_eq!(bad.validate(), Err(ColorError::OutOfRange("tint", 101)));
     }
 
     #[test]
@@ -123,6 +142,7 @@ mod tests {
     fn missing_values_are_unchanged() {
         let parsed: ColorAdjust = serde_json::from_str(r#"{"saturation":-100}"#).unwrap();
         assert_eq!((parsed.brightness, parsed.contrast), (0, 0));
+        assert_eq!((parsed.temperature, parsed.tint), (0, 0), "older projects");
         assert_eq!(parsed.saturation, -100);
     }
 }
