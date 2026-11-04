@@ -46,7 +46,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Custom fonts (bundled web fonts available to the export worker)
 - [x] Drag text directly on the preview to position it
 - [x] Transform: position, scale, rotation, opacity; picture-in-picture presets; drag on the preview
-- [ ] Keyframes for transforms (animate position, scale, rotation, opacity)
+- [x] Keyframes for transforms (animate position, scale, rotation, opacity; easing)
+- [ ] Drag keyframes on the timeline; per-property keyframes; keyframed text
 - [ ] Resize and rotate handles on the preview
 - [x] Transitions: crossfade, dip, slide, wipe (centred on the cut, both renderers)
 - [x] Audio crossfades under video transitions (equal power; dips fade to the cut)

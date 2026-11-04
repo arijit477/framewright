@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
+import { roundTransform } from '../lib/keyframes';
 import { registerPendingEdits } from '../lib/pending-edits';
+import { KeyframeField } from './KeyframeField';
 import { TransitionField } from './TransitionField';
-import { setClipTransform } from '../store/editor';
+import { clipTransformAt, resetTransform, setClipTransform, useEditor } from '../store/editor';
 
 const COMMIT_DELAY_MS = 400;
 
@@ -18,9 +20,17 @@ const PIP_PRESETS = [
   { label: 'Bottom right', x: PIP_FAR, y: PIP_FAR },
 ];
 
-/** Position, scale, rotation and opacity of a media clip. */
+/**
+ * Position, scale, rotation and opacity of a media clip. Once the clip has
+ * keyframes, the sliders show (and change) its look at the playhead.
+ */
 export function TransformInspector({ clip }: { clip: Clip }) {
-  const saved = clip.transform ?? IDENTITY_TRANSFORM;
+  const animated = (clip.keyframes?.length ?? 0) > 0;
+  // Only follow the playhead when it matters, so playback doesn't re-render the panel otherwise.
+  const playhead = useEditor((s) => (animated ? s.playhead : 0));
+  const saved = animated
+    ? roundTransform(clipTransformAt(clip.id, playhead))
+    : (clip.transform ?? IDENTITY_TRANSFORM);
   const [draft, setDraft] = useState<Transform>(saved);
   // Follow undo/redo and on-preview drags (reset during render, keyed on content).
   const savedKey = JSON.stringify(saved);
@@ -43,11 +53,13 @@ export function TransformInspector({ clip }: { clip: Clip }) {
   const change = (patch: Partial<Transform>, { now = false } = {}) => {
     const next = { ...draft, ...patch };
     setDraft(next);
+    // Keyframed at the moment of the change, even if the playhead moves before the commit.
+    const at = useEditor.getState().playhead;
     if (now) {
       debouncer.cancel();
-      setClipTransform(clip.id, next);
+      setClipTransform(clip.id, next, at);
     } else {
-      debouncer.schedule(() => setClipTransform(clip.id, next));
+      debouncer.schedule(() => setClipTransform(clip.id, next, at));
     }
   };
   const flush = () => debouncer.flush();
@@ -103,6 +115,8 @@ export function TransformInspector({ clip }: { clip: Clip }) {
         onCommit={flush}
       />
 
+      <KeyframeField clip={clip} flush={flush} />
+
       <div className="field">
         Picture in picture
         <div className="pip-grid" role="group" aria-label="Picture in picture">
@@ -121,8 +135,12 @@ export function TransformInspector({ clip }: { clip: Clip }) {
       <TransitionField clip={clip} />
 
       <button
-        onClick={() => change(IDENTITY_TRANSFORM, { now: true })}
-        disabled={savedKey === JSON.stringify(IDENTITY_TRANSFORM)}
+        onClick={() => {
+          debouncer.cancel();
+          resetTransform(clip.id);
+        }}
+        disabled={!animated && savedKey === JSON.stringify(IDENTITY_TRANSFORM)}
+        title={animated ? 'Reset the transform and remove all keyframes' : undefined}
       >
         Reset
       </button>

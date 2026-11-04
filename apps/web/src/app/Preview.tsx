@@ -1,9 +1,16 @@
 import { useEffect, useRef } from 'react';
-import { IDENTITY_TRANSFORM, TRANSFORM_LIMITS, TEXT_LIMITS, type Clip } from '../engine/types';
+import {
+  IDENTITY_TRANSFORM,
+  TRANSFORM_LIMITS,
+  TEXT_LIMITS,
+  type Clip,
+  type Transform,
+} from '../engine/types';
 import { COMPOSITION } from '../render/protocol';
 import {
   beginGesture,
   cancelGesture,
+  clipTransformAt,
   endGesture,
   previewDragTarget,
   renderer,
@@ -11,13 +18,19 @@ import {
   selectClip,
   updateGesture,
   useEditor,
+  writeTransform,
 } from '../store/editor';
+import { roundTransform } from '../lib/keyframes';
 
 /** Canvases already handed to the worker (React StrictMode mounts effects twice). */
 const attached = new WeakSet<HTMLCanvasElement>();
 
 interface Drag {
   clip: Clip;
+  /** The playhead when the drag began: an animated clip is keyframed there. */
+  at: number;
+  /** A media clip's transform at that moment. */
+  base: Transform;
   pointerId: number;
   startX: number;
   startY: number;
@@ -61,12 +74,16 @@ export function Preview() {
     const clip = previewDragTarget();
     if (!clip) return;
     selectClip(clip.id);
-    const from = clip.text ? clip.text.style : (clip.transform ?? IDENTITY_TRANSFORM);
+    const at = useEditor.getState().playhead;
+    const base = clip.text ? IDENTITY_TRANSFORM : roundTransform(clipTransformAt(clip.id, at));
+    const from = clip.text ? clip.text.style : base;
     const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.setPointerCapture(event.pointerId);
     beginGesture();
     drag.current = {
       clip,
+      at,
+      base,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -83,7 +100,7 @@ export function Preview() {
     // Screen pixels -> thousandths of the frame, so it works at any preview size.
     const x = Math.round(d.fromX + ((event.clientX - d.startX) / d.width) * 1000);
     const y = Math.round(d.fromY + ((event.clientY - d.startY) / d.height) * 1000);
-    const { clip } = d;
+    const { clip, at, base } = d;
     updateGesture((e) => {
       if (clip.text) {
         const max = TEXT_LIMITS.positionScale;
@@ -93,11 +110,7 @@ export function Preview() {
         });
       } else {
         const { minPosition: min, maxPosition: max } = TRANSFORM_LIMITS;
-        e.setClipTransform(clip.id, {
-          ...(clip.transform ?? IDENTITY_TRANSFORM),
-          x: clamp(x, min, max),
-          y: clamp(y, min, max),
-        });
+        writeTransform(e, clip, { ...base, x: clamp(x, min, max), y: clamp(y, min, max) }, at);
       }
     });
   };

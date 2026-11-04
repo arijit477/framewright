@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::keyframe::{self, Easing, Keyframe, KeyframeError, ResolvedTransform};
 use crate::text::{TextContent, TextError};
 use crate::transform::{Transform, TransformError};
 use crate::transition::{LayerTransition, Transition, TransitionError};
@@ -58,6 +59,10 @@ pub struct Clip {
     /// when unchanged, so old projects and plain clips stay compact.
     #[serde(default, skip_serializing_if = "Transform::is_identity")]
     pub transform: Transform,
+    /// Animation of the transform, in source-time order. While there are any,
+    /// they decide the transform and `transform` is unused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyframes: Vec<Keyframe>,
     /// Transition from the clip directly before this one on the same track.
     /// Inactive (ignored) while the clips aren't touching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,7 +121,7 @@ pub enum Edge {
 }
 
 /// One clip visible at a given moment, as the renderer needs it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Layer {
     /// Index of the track; higher indices are drawn on top.
@@ -131,8 +136,9 @@ pub struct Layer {
     /// Set for text clips: what to draw instead of a video frame.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<TextContent>,
-    /// Placement of a media clip (identity for text, which uses its style).
-    pub transform: Transform,
+    /// Placement of a media clip at this moment (identity for text, which uses
+    /// its style). Fractional while keyframes animate it.
+    pub transform: ResolvedTransform,
     /// Set while the layer is part of a transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<LayerTransition>,
@@ -210,6 +216,8 @@ pub enum EditError {
     TransformOnText,
     #[error("invalid transition: {0}")]
     InvalidTransition(#[from] TransitionError),
+    #[error("keyframe: {0}")]
+    InvalidKeyframe(#[from] KeyframeError),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,13 +393,105 @@ impl Timeline {
         transform: Transform,
     ) -> Result<(), EditError> {
         transform.validate()?;
+        self.media_clip_mut(clip_id)?.transform = transform;
+        Ok(())
+    }
+
+    /// Add a keyframe at `source_time` (a time in the clip's media, inside the
+    /// clip) or change the transform of the one already there, keeping its easing.
+    pub fn set_keyframe(
+        &mut self,
+        clip_id: ClipId,
+        source_time: Micros,
+        transform: Transform,
+    ) -> Result<(), EditError> {
+        transform.validate()?;
+        let clip = self.media_clip_mut(clip_id)?;
+        if source_time < clip.source_in || source_time > clip.source_in + clip.duration {
+            return Err(EditError::OutOfRange(source_time));
+        }
+        let keys = &mut clip.keyframes;
+        let at = keys.partition_point(|k| k.source_time < source_time);
+        match keys.get_mut(at) {
+            Some(k) if k.source_time == source_time => k.transform = transform,
+            _ => {
+                if keys.len() >= keyframe::MAX_KEYFRAMES {
+                    return Err(KeyframeError::TooMany.into());
+                }
+                keys.insert(
+                    at,
+                    Keyframe {
+                        source_time,
+                        transform,
+                        easing: Easing::default(),
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Set how the transform moves from the keyframe at `source_time` to the next.
+    pub fn set_keyframe_easing(
+        &mut self,
+        clip_id: ClipId,
+        source_time: Micros,
+        easing: Easing,
+    ) -> Result<(), EditError> {
+        let clip = self.media_clip_mut(clip_id)?;
+        let key = clip
+            .keyframes
+            .iter_mut()
+            .find(|k| k.source_time == source_time)
+            .ok_or(KeyframeError::NotFound)?;
+        key.easing = easing;
+        Ok(())
+    }
+
+    pub fn remove_keyframe(
+        &mut self,
+        clip_id: ClipId,
+        source_time: Micros,
+    ) -> Result<(), EditError> {
+        let clip = self.media_clip_mut(clip_id)?;
+        let index = clip
+            .keyframes
+            .iter()
+            .position(|k| k.source_time == source_time)
+            .ok_or(KeyframeError::NotFound)?;
+        clip.keyframes.remove(index);
+        Ok(())
+    }
+
+    /// Stop animating: the clip keeps its static `transform`.
+    pub fn clear_keyframes(&mut self, clip_id: ClipId) -> Result<(), EditError> {
+        self.media_clip_mut(clip_id)?.keyframes.clear();
+        Ok(())
+    }
+
+    /// A media clip's transform at timeline time `at` (animated if it has
+    /// keyframes; held before the first and after the last).
+    pub fn clip_transform_at(
+        &self,
+        clip_id: ClipId,
+        at: Micros,
+    ) -> Result<ResolvedTransform, EditError> {
+        let (t, c) = self.locate(clip_id)?;
+        let clip = &self.tracks[t].clips[c];
+        if clip.text.is_some() {
+            return Err(EditError::TransformOnText);
+        }
+        Ok(clip_transform(clip, at))
+    }
+
+    /// A clip that can have a transform (not text).
+    fn media_clip_mut(&mut self, clip_id: ClipId) -> Result<&mut Clip, EditError> {
         let (t, c) = self.locate(clip_id)?;
         let clip = &mut self.tracks[t].clips[c];
         if clip.text.is_some() {
             return Err(EditError::TransformOnText);
         }
-        clip.transform = transform;
-        Ok(())
+        Ok(clip)
     }
 
     /// Shared by media and text clips: overlap check, id allocation, sorted insert.
@@ -423,6 +523,7 @@ impl Timeline {
             muted: false,
             text,
             transform: Transform::default(),
+            keyframes: Vec::new(),
             transition_in: None,
         });
         Ok(id)
@@ -620,7 +721,13 @@ impl Timeline {
     }
 
     pub fn from_json(json: &str) -> Result<Self, EditError> {
-        serde_json::from_str(json).map_err(|e| EditError::InvalidProject(e.to_string()))
+        let mut timeline: Self =
+            serde_json::from_str(json).map_err(|e| EditError::InvalidProject(e.to_string()))?;
+        // Edits keep keyframes in order; a hand-edited file might not.
+        for clip in timeline.tracks.iter_mut().flat_map(|t| t.clips.iter_mut()) {
+            keyframe::normalize(&mut clip.keyframes);
+        }
+        Ok(timeline)
     }
 
     /// Whether a clip's transition is in effect (it touches the clip before it).
@@ -733,6 +840,12 @@ fn fade(start: Micros, end: Micros, curve: FadeCurve) -> AudioFade {
     AudioFade { start, end, curve }
 }
 
+/// A clip's transform at timeline time `at`, following its media.
+fn clip_transform(clip: &Clip, at: Micros) -> ResolvedTransform {
+    keyframe::evaluate(&clip.keyframes, clip.source_in + (at - clip.start))
+        .unwrap_or_else(|| clip.transform.into())
+}
+
 /// A clip's layer at timeline time `at` (which may be just outside the clip
 /// during a transition: the source time is then past its out-point or before
 /// its in-point, and is clamped at the start of the media).
@@ -750,7 +863,7 @@ fn clip_layer(
         clip_time: at - clip.start,
         clip_duration: clip.duration,
         text: clip.text.clone(),
-        transform: clip.transform,
+        transform: clip_transform(clip, at),
         transition,
     }
 }
@@ -1071,7 +1184,7 @@ mod tests {
             opacity_percent: 100,
         };
         tl.set_clip_transform(clip, pip).unwrap();
-        assert_eq!(tl.resolve(3 * S)[0].transform, pip);
+        assert_eq!(tl.resolve(3 * S)[0].transform, pip.into());
         tl.split_clip(clip, 4 * S).unwrap();
         assert!(tl.tracks[0].clips.iter().all(|c| c.transform == pip));
     }
@@ -1314,5 +1427,130 @@ mod tests {
         let (tl, _, _) = timeline_with_clip();
         let restored = Timeline::from_json(&tl.to_json()).unwrap();
         assert_eq!(restored, tl);
+    }
+
+    fn at_x(x: i16) -> Transform {
+        Transform {
+            x,
+            ..Transform::default()
+        }
+    }
+
+    /// The animated x position of the clip's layer at timeline time `at`.
+    fn x_at(tl: &Timeline, at: Micros) -> f64 {
+        tl.resolve(at)[0].transform.x
+    }
+
+    #[test]
+    fn keyframes_animate_the_resolved_transform() {
+        // The clip runs 2-6 s on the timeline, showing source 0-4 s.
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_keyframe(clip, 0, at_x(0)).unwrap();
+        tl.set_keyframe(clip, 4 * S, at_x(1000)).unwrap();
+        assert_eq!(x_at(&tl, 2 * S), 0.0);
+        assert_eq!(x_at(&tl, 3 * S), 250.0);
+        let fractional = x_at(&tl, 3 * S + S / 1000);
+        assert!(
+            (fractional - 250.25).abs() < 1e-9,
+            "not stepped: {fractional}"
+        );
+        // The static transform is unused while keyframes exist.
+        tl.set_clip_transform(clip, at_x(900)).unwrap();
+        assert_eq!(x_at(&tl, 4 * S), 500.0);
+        // Also available for any clip, whether or not it's on screen.
+        assert_eq!(tl.clip_transform_at(clip, 0).unwrap().x, 0.0);
+        assert_eq!(tl.clip_transform_at(clip, 4 * S).unwrap().x, 500.0);
+        tl.clear_keyframes(clip).unwrap();
+        assert_eq!(x_at(&tl, 4 * S), 900.0);
+    }
+
+    #[test]
+    fn keyframes_stay_with_the_media_when_trimmed_or_split() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_keyframe(clip, 0, at_x(0)).unwrap();
+        tl.set_keyframe(clip, 4 * S, at_x(1000)).unwrap();
+        // Trim one second off the start: the same picture moment has the same transform.
+        tl.trim_clip(clip, Edge::Start, 3 * S).unwrap();
+        assert_eq!(x_at(&tl, 4 * S), 500.0);
+        // Split: both halves carry the animation on seamlessly.
+        tl.split_clip(clip, 4 * S).unwrap();
+        assert_eq!(x_at(&tl, 4 * S - 1), 500.0 - 1000.0 / 4.0 / S as f64);
+        assert_eq!(x_at(&tl, 5 * S), 750.0);
+    }
+
+    #[test]
+    fn setting_a_keyframe_again_updates_it_and_keeps_its_easing() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_keyframe(clip, 2 * S, at_x(100)).unwrap();
+        tl.set_keyframe(clip, S, at_x(50)).unwrap();
+        tl.set_keyframe_easing(clip, 2 * S, Easing::EaseOut)
+            .unwrap();
+        tl.set_keyframe(clip, 2 * S, at_x(200)).unwrap();
+        let keys = &tl.tracks[0].clips[0].keyframes;
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].source_time, S, "kept in time order");
+        assert_eq!(
+            (keys[1].transform.x, keys[1].easing),
+            (200, Easing::EaseOut)
+        );
+    }
+
+    #[test]
+    fn keyframe_edits_are_validated() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        assert_eq!(
+            tl.set_keyframe(clip, 5 * S, at_x(0)),
+            Err(EditError::OutOfRange(5 * S)),
+            "outside the clip's media range"
+        );
+        assert!(matches!(
+            tl.set_keyframe(clip, 0, at_x(3000)),
+            Err(EditError::InvalidTransform(_))
+        ));
+        assert_eq!(
+            tl.remove_keyframe(clip, S),
+            Err(EditError::InvalidKeyframe(KeyframeError::NotFound))
+        );
+        assert_eq!(
+            tl.set_keyframe_easing(clip, S, Easing::EaseIn),
+            Err(EditError::InvalidKeyframe(KeyframeError::NotFound))
+        );
+        let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
+        assert_eq!(
+            tl.set_keyframe(text, 0, at_x(0)),
+            Err(EditError::TransformOnText)
+        );
+        for i in 0..keyframe::MAX_KEYFRAMES as i64 {
+            tl.set_keyframe(clip, i * 1000, at_x(0)).unwrap();
+        }
+        assert_eq!(
+            tl.set_keyframe(clip, 3 * S, at_x(0)),
+            Err(EditError::InvalidKeyframe(KeyframeError::TooMany))
+        );
+        tl.set_keyframe(clip, 0, at_x(5)).unwrap(); // updating one is still fine
+        tl.remove_keyframe(clip, 0).unwrap();
+        assert_eq!(
+            tl.tracks[0].clips[0].keyframes.len(),
+            keyframe::MAX_KEYFRAMES - 1
+        );
+    }
+
+    #[test]
+    fn keyframes_are_saved_only_when_present_and_put_in_order_on_load() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        assert!(!tl.to_json().contains("keyframes"));
+        tl.set_keyframe(clip, S, at_x(10)).unwrap();
+        tl.set_keyframe(clip, 2 * S, at_x(20)).unwrap();
+        let json = tl.to_json();
+        assert_eq!(Timeline::from_json(&json).unwrap(), tl);
+        // A hand-edited file with keyframes out of order still loads in order.
+        let swapped = json.replacen("\"sourceTime\":1000000", "\"sourceTime\":3000000", 1);
+        let loaded = Timeline::from_json(&swapped).unwrap();
+        let times: Vec<_> = loaded.tracks[0].clips[0]
+            .keyframes
+            .iter()
+            .map(|k| k.source_time)
+            .collect();
+        assert_eq!(times, [2 * S, 3 * S]);
     }
 }
