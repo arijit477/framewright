@@ -20,6 +20,8 @@ leaves your machine.
   4K exports don't need to fit in memory
 - Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom, with video
   thumbnails (filmstrip) on every clip
+- Text overlays: titles and captions with font, size, colour, background box, alignment,
+  position and fade/slide/pop animations, rendered identically in preview and export
 - Multiple video and audio tracks: drag a clip above the top track for a new layer (B-roll,
   cutaways); higher tracks cover lower ones
 - Frame-accurate preview, rendered off the main thread
@@ -29,7 +31,7 @@ leaves your machine.
   media) and import it in any browser or on another computer
 - Undo/redo for every edit
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
-  <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove, <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
+  <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove, <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 

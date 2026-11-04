@@ -210,6 +210,34 @@ See [ADR 0008](./adr/0008-track-order-and-lifecycle.md).
 - **Accessibility:** a visually hidden list (`TrackList.tsx`) describes every track and clip
   with times for screen readers; the browser tests use it too.
 
+## Text overlays
+
+See [ADR 0010](./adr/0010-text-overlays.md).
+
+- **Model (Rust, `text.rs`):** a text clip is an ordinary clip with `text: { text, style }`
+  and no media (`assetId` empty, effectively unlimited source length), so moving, trimming,
+  splitting, layering and undo all work unchanged. The style is validated by the engine:
+  non-empty text up to 500 characters, sizes 12–300, `#rrggbb` colours and `#rrggbbaa` boxes,
+  positions 0–1000 and animations up to 3 s. Old projects load unchanged (the field is
+  optional).
+- **Resolution independence:** sizes are pixels on a 1080p frame and positions are thousandths
+  of the frame, so a title is laid out identically at every export resolution.
+- **One renderer:** `render/text.ts` lays out and draws text (word wrap at 90% width, alignment
+  anchor, background box or legibility shadow, eased fade/slide/pop). The layout and animation
+  maths are pure and unit-tested. The engine's `resolve()` returns text layers with the clip's
+  local time, and `render/compose.ts` turns layers into draw items for both the preview and
+  export workers.
+- **WebGPU:** text is drawn onto a transparent canvas and imported as a `VideoFrame`, so it goes
+  through the same self-tested pipeline as video. The self-test also draws a transparent
+  frame over red and checks the result stays red; if transparency is lost on a device, the app
+  falls back to Canvas 2D instead of showing black boxes.
+- **Editing:** the inspector commits discrete choices at once and typing or slider drags after
+  a pause, so undo steps stay meaningful. No-op edits are ignored by `edit()`. Keyboard
+  shortcuts are ignored in any editable field, and undo/redo keep the selected clip when it
+  still exists.
+- **Fonts:** generic system font stacks, which are available inside workers (and so in
+  export). Bundled custom fonts are on the roadmap.
+
 ## Timeline thumbnails
 
 Video clips show a filmstrip (`apps/web/src/thumbnails`):
