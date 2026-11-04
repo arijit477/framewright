@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { formatTimecode } from '../lib/time';
+import { openCaptions } from '../store/captions';
 import { LevelMeter } from './LevelMeter';
 import {
   addText,
@@ -36,6 +37,13 @@ export function Toolbar() {
         </button>
         <button onClick={() => addText()} disabled={!hasMedia} title="Add text (T)">
           Text
+        </button>
+        <button
+          onClick={openCaptions}
+          disabled={!hasMedia}
+          title="Turn the speech in your project into captions, on this device"
+        >
+          Captions
         </button>
         <input
           ref={fileInput}

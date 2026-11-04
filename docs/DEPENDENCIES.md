@@ -5,13 +5,15 @@ the app.** Check this table before adding a package, and add a row in the same P
 
 ## Runtime (shipped to users)
 
-| Package              | Version   | Licence | Why                                                                                                                                                                            |
-| -------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `react`, `react-dom` | 19.3      | MIT     | UI framework. Familiar to contributors; the hot paths (timeline, preview) bypass React and draw on canvases.                                                                   |
-| `zustand`            | 5.0       | MIT     | Small store that can be read and subscribed to outside React (playback loop, canvas timeline) without re-rendering.                                                            |
-| `mediabunny`         | 1.65      | MPL-2.0 | Pure-TS demuxing/muxing for MP4, WebM, MOV and MKV, and a WebCodecs-backed decoder API. MPL-2.0 is file-level copyleft: using it unmodified places no obligations on our code. |
-| `client-zip`         | 2.5       | MIT     | Streams project backups as ZIP (with ZIP64 for files over 4 GB) without holding them in memory. Writing only; reading uses our own `zip-reader.ts`.                            |
-| `framewright-engine` | workspace | MIT     | Our Rust engine, compiled to WASM.                                                                                                                                             |
+| Package                     | Version                                          | Licence    | Why                                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `react`, `react-dom`        | 19.3                                             | MIT        | UI framework. Familiar to contributors; the hot paths (timeline, preview) bypass React and draw on canvases.                                                                                                                       |
+| `zustand`                   | 5.0                                              | MIT        | Small store that can be read and subscribed to outside React (playback loop, canvas timeline) without re-rendering.                                                                                                                |
+| `mediabunny`                | 1.65                                             | MPL-2.0    | Pure-TS demuxing/muxing for MP4, WebM, MOV and MKV, and a WebCodecs-backed decoder API. MPL-2.0 is file-level copyleft: using it unmodified places no obligations on our code.                                                     |
+| `client-zip`                | 2.5                                              | MIT        | Streams project backups as ZIP (with ZIP64 for files over 4 GB) without holding them in memory. Writing only; reading uses our own `zip-reader.ts`.                                                                                |
+| `framewright-engine`        | workspace                                        | MIT        | Our Rust engine, compiled to WASM.                                                                                                                                                                                                 |
+| `@huggingface/transformers` | 4.3                                              | Apache-2.0 | Runs the Whisper speech model in the browser for auto captions. Loaded only in the captions worker. Its Node-only dependencies (`sharp`, `onnxruntime-node`) are installed but never bundled, and their install scripts don't run. |
+| `onnxruntime-web`           | 1.31.0-dev (pinned to what Transformers.js uses) | MIT        | The WebAssembly engine that executes the model. A direct dependency only so the app bundles its engine files instead of fetching them from a CDN at run time.                                                                      |
 
 ### Rust crates (`crates/engine`)
 
@@ -34,6 +36,13 @@ the app.** Check this table before adding a package, and add a row in the same P
 | `@webgpu/types`                                                                               | WebGPU type definitions.                                                          |
 | `wasm-pack` (cargo install)                                                                   | Builds the engine to WASM and generates TS bindings.                              |
 | `pretty_assertions` (Rust)                                                                    | Readable test diffs.                                                              |
+
+## Models and data downloaded at run time
+
+| What                                                                                                                                                            | Licence                                     | When                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Whisper speech models, `Xenova/whisper-tiny` and `Xenova/whisper-base` (8-bit ONNX conversions of OpenAI's Whisper, revisions pinned in `captions/protocol.ts`) | Apache-2.0 (OpenAI's original weights: MIT) | Downloaded from Hugging Face the first time someone creates captions (about 41 or 77 MB), then cached by the browser. Audio is processed on the device and never uploaded. |
+| `jfk.wav` (tests only): John F. Kennedy's 1961 inaugural address, 11 s                                                                                          | Public domain (US government work)          | Downloaded by the end-to-end test setup, from the Transformers.js documentation dataset.                                                                                   |
 
 ## Platform APIs used
 

@@ -277,6 +277,19 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Auto captions
+
+See [ADR 0021](./adr/0021-auto-captions.md).
+
+- **Worker (`captions/captions.worker.ts`):** mixes the project's sound to 16 kHz mono (the
+  shared `Mixer`), skips silent blocks, and runs Whisper with Transformers.js on ONNX Runtime Web
+  (the engine is bundled). The model (pinned revisions in `captions/protocol.ts`) downloads from
+  Hugging Face once and is cached by the browser. One worker per run, terminated after.
+- **Shaping (`captions/segments.ts`):** timed phrases become readable captions (two lines of 42
+  characters, 0.7–6 s, no overlaps); `captions/srt.ts` writes .srt and .vtt.
+- **Store (`store/captions.ts`):** runs the job, shows progress, and adds the captions as title
+  clips on a new top track in one undo step (`addCaptions`).
+
 ## Keyboard access to the timeline
 
 See [ADR 0020](./adr/0020-keyboard-timeline.md). The timeline canvas is a Tab stop: arrow keys,

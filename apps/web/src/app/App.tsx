@@ -30,6 +30,7 @@ import {
   useProject,
 } from '../store/project';
 import { Timeline } from '../timeline/Timeline';
+import { CaptionsDialog } from './CaptionsDialog';
 import { ExportDialog } from './ExportDialog';
 import { MissingMediaBanner } from './MissingMedia';
 import { ProjectsDialog, ProjectTitle } from './ProjectsDialog';
@@ -205,6 +206,7 @@ export function App() {
         <MissingMediaBanner />
       </div>
       <ExportDialog />
+      <CaptionsDialog />
       <ProjectsDialog />
       <div className="workspace">
         <Preview />

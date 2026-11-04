@@ -7,6 +7,14 @@ import { FIXTURES, fixture } from './media';
  * binaries. The test-pattern video burns in its own timestamp and frame number,
  * so frame accuracy can be checked by looking at a single frame.
  */
+/**
+ * A short public-domain speech recording (John F. Kennedy, 1961: "ask not
+ * what your country can do for you…"), the sample the Transformers.js docs
+ * use. Downloaded once; the captions tests transcribe it.
+ */
+const SPEECH_URL =
+  'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav';
+
 export default function globalSetup() {
   mkdirSync(fixture(''), { recursive: true });
   // Arguments are split on spaces; none of them contain spaces.
@@ -53,6 +61,12 @@ export default function globalSetup() {
         }
     writeFileSync(fixture(FIXTURES.lut), `TITLE "Swap"\nLUT_3D_SIZE ${n}\n${rows.join('\n')}\n`);
   }
+  if (!existsSync(fixture(FIXTURES.speech))) {
+    // curl rather than fetch(): it honours HTTPS_PROXY where downloads must use one.
+    execFileSync('curl', ['-fsSL', '--retry', '3', '-o', fixture(FIXTURES.speech), SPEECH_URL]);
+  }
+  // 4 s of silence (with an audio track): Whisper must not invent words for it.
+  make(FIXTURES.silence, '-f lavfi -i anullsrc=r=16000:cl=mono -t 4');
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.
   make(
     FIXTURES.audio,

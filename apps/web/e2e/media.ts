@@ -12,6 +12,8 @@ export const FIXTURES = {
   beep: 'beep.webm',
   steps: 'steps.wav',
   lut: 'swap.cube',
+  speech: 'jfk.wav',
+  silence: 'silence.wav',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 

@@ -76,6 +76,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @framewright/web build
       - run: pnpm --filter @framewright/web exec playwright install --with-deps chromium
+      # Speech model files and the speech sample for the captions tests (~45 MB):
+      # downloaded from Hugging Face once, then reused while the pinned models stay the same.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            apps/web/e2e/.fixtures/hf-cache
+            apps/web/e2e/.fixtures/jfk.wav
+          key: hf-${{ hashFiles('apps/web/src/captions/protocol.ts', 'apps/web/e2e/hf-cache.ts') }}
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()

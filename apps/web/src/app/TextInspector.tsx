@@ -10,7 +10,8 @@ import {
 } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
-import { selectedClip, updateText, useEditor } from '../store/editor';
+import { toSrt, toVtt } from '../captions/srt';
+import { selectedClip, trackCaptions, updateText, useEditor } from '../store/editor';
 
 /** Typing and dragging sliders commit after this pause, so undo steps stay meaningful. */
 const COMMIT_DELAY_MS = 500;
@@ -258,6 +259,7 @@ function Inspector({ clip, saved }: { clip: Clip; saved: TextContent }) {
           </select>
         </label>
       </div>
+      <CaptionFiles clipId={clip.id} />
     </aside>
   );
 }
@@ -278,5 +280,39 @@ function Toggle(props: {
     >
       {props.children}
     </button>
+  );
+}
+
+/** Save the titles on this clip's track as a captions file, for players and platforms. */
+function CaptionFiles({ clipId }: { clipId: number }) {
+  const trackId = useEditor(
+    (s) => s.timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId))?.id ?? null,
+  );
+  if (trackId === null) return null;
+  const save = (format: 'srt' | 'vtt') => {
+    const captions = trackCaptions(trackId);
+    const text = format === 'srt' ? toSrt(captions) : toVtt(captions);
+    const url = URL.createObjectURL(
+      new Blob([text], { type: format === 'srt' ? 'application/x-subrip' : 'text/vtt' }),
+    );
+    const link = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `captions.${format}`,
+    });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  return (
+    <div className="field">
+      Captions file (this track’s titles)
+      <div className="lut-buttons">
+        <button type="button" onClick={() => save('srt')}>
+          Save as .srt
+        </button>
+        <button type="button" onClick={() => save('vtt')}>
+          Save as .vtt
+        </button>
+      </div>
+    </div>
   );
 }
