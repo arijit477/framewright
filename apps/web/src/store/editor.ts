@@ -26,14 +26,14 @@ import {
 } from '../lib/keyframes';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
-import { framesToMicros, microsToFrames } from '../lib/time';
+import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
 import type { ProjectAsset, ProjectLut } from '../project/document';
 import { decodeLut, encodeLut, parseCube, type Lut } from '../render/lut';
 import type { LutData } from '../render/protocol';
 import type { RendererBackend } from '../render/protocol';
-import { trackRows, type View } from '../timeline/geometry';
+import { trackNames, trackRows, type View } from '../timeline/geometry';
 
 const MAX_HISTORY = 100;
 
@@ -58,6 +58,8 @@ export interface EditorState {
   selectedClipId: number | null;
   /** Every selected clip (Ctrl/⌘/Shift-click adds and removes; Ctrl/⌘+A selects all). */
   selectedClipIds: number[];
+  /** What screen readers hear after a keyboard action on the timeline (a live region). */
+  announcement: string;
   /** LUTs imported into the project, by id (saved with it; clips refer to them). */
   luts: Record<string, ProjectLut>;
   view: View;
@@ -98,6 +100,7 @@ export const useEditor = create<EditorState>(() => ({
   playing: false,
   selectedClipId: null,
   selectedClipIds: [],
+  announcement: '',
   luts: {},
   ripple: loadRipple(),
   view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
@@ -784,6 +787,117 @@ export function paste(): void {
     ids = e.pasteClips(usable, playhead);
   });
   if (pasted) set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
+}
+
+// ---------------------------------------------------------------- keyboard editing
+
+/** Say something to screen-reader users (the timeline's live region). */
+export function announce(text: string): void {
+  set({ announcement: text });
+}
+
+/** "red.webm on Video 1, 00:06:00 to 00:09:00", for announcements. */
+export function describeClip(clipId: number): string {
+  const { timeline, assets } = get();
+  const track = timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId));
+  const clip = track?.clips.find((c) => c.id === clipId);
+  if (!track || !clip) return '';
+  const name = clip.text ? `text “${clip.text.text}”` : (assets[clip.assetId]?.name ?? 'clip');
+  const where = trackNames(timeline).get(track.id);
+  return `${name} on ${where}, ${formatTimecode(clip.start)} to ${formatTimecode(clipEnd(clip))}`;
+}
+
+/** Nudges since Alt went down: undone together (see `endNudge`). */
+let nudging = false;
+
+/**
+ * Move the selection by whole frames (Alt+Left/Right), landing the main clip
+ * on the frame grid. Nudges made while Alt stays down are one undo step.
+ * Returns false if it can't move (another clip, or the start of the timeline).
+ */
+export function nudgeSelection(frames: number): boolean {
+  const { selectedClipIds, selectedClipId } = get();
+  const main = clipsByIds(selectedClipId === null ? [] : [selectedClipId])[0];
+  if (!main) return false;
+  const target = framesToMicros(microsToFrames(main.start) + frames);
+  if (!nudging) {
+    beginGesture();
+    nudging = true;
+  }
+  const moved = updateGesture((e) => e.moveClips(selectedClipIds, target - main.start));
+  announce(
+    moved
+      ? `${describeClip(main.id)}.`
+      : 'Can’t move further: another clip or the start of the timeline is in the way.',
+  );
+  return moved;
+}
+
+/** Alt released (or focus lost): close the nudges' undo step. */
+export function endNudge(): void {
+  if (!nudging) return;
+  nudging = false;
+  endGesture();
+}
+
+/**
+ * Move the selected clip to the track above or below (Alt+Up/Down) of its
+ * kind; past the top video track or the bottom audio track, onto a new one.
+ */
+export function moveSelectionToTrack(direction: -1 | 1): boolean {
+  const { selectedClipIds, selectedClipId, timeline } = get();
+  if (selectedClipIds.length !== 1 || selectedClipId === null) {
+    if (selectedClipIds.length > 1) notify('info', 'Select one clip to move it to another track.');
+    return false;
+  }
+  const rows = trackRows(timeline);
+  const row = rows.findIndex((t) => t.clips.some((c) => c.id === selectedClipId));
+  const track = rows[row]!;
+  const clip = track.clips.find((c) => c.id === selectedClipId)!;
+  let target: { trackId: number } | { newTrack: TrackKind } | null = null;
+  for (let r = row + direction; r >= 0 && r < rows.length; r += direction) {
+    if (rows[r]!.kind === track.kind) {
+      target = { trackId: rows[r]!.id };
+      break;
+    }
+  }
+  // Rows are top-down: video tracks above audio tracks.
+  if (
+    !target &&
+    ((track.kind === 'video' && direction < 0) || (track.kind === 'audio' && direction > 0))
+  ) {
+    target = { newTrack: track.kind };
+  }
+  if (!target) return false;
+  const moved = moveClip(clip.id, clip.start, target);
+  if (moved) announce(`${describeClip(clip.id)}.`);
+  return moved;
+}
+
+/**
+ * Trim the selected clips under the playhead so they start or end there (`[`
+ * and `]`), as one undo step. With ripple, each clip keeps its place and the
+ * rest of its track follows, like a ripple trim with the mouse.
+ */
+export function trimSelectedToPlayhead(edge: 'start' | 'end'): boolean {
+  const { selectedClipIds, playhead, ripple } = get();
+  const clips = clipsByIds(selectedClipIds).filter(
+    (c) => c.start < playhead && playhead < clipEnd(c),
+  );
+  if (clips.length === 0) {
+    if (selectedClipIds.length > 0) {
+      notify('info', 'Move the playhead inside the selected clip to trim it there.');
+    }
+    return false;
+  }
+  const trimmed = edit((e) => {
+    for (const c of clips) {
+      if (ripple) e.trimClipRipple(c.id, edge, playhead);
+      else e.trimClip(c.id, edge, playhead);
+    }
+  });
+  if (trimmed) announce(`${describeClip(clips.at(-1)!.id)}.`);
+  return trimmed;
 }
 
 export function setRipple(on: boolean): void {

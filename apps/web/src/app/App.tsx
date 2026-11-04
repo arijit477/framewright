@@ -4,6 +4,10 @@ import {
   copySelected,
   cutSelected,
   deleteSelected,
+  endNudge,
+  moveSelectionToTrack,
+  nudgeSelection,
+  trimSelectedToPlayhead,
   duplicateSelected,
   paste,
   selectAll,
@@ -113,16 +117,55 @@ export function App() {
           // Shift always ripples (closes the gap), whatever the toggle says.
           deleteSelected(event.shiftKey ? { ripple: true } : {});
           break;
+        // Alt+arrows move the selection: by frames (Shift: 10), or to another track.
+        // Plain arrows (and , and .) step the playhead.
         case 'ArrowLeft':
-          stepFrames(event.shiftKey ? -10 : -1);
+          if (event.altKey) {
+            event.preventDefault();
+            nudgeSelection(event.shiftKey ? -10 : -1);
+          } else stepFrames(event.shiftKey ? -10 : -1);
           break;
         case 'ArrowRight':
+          if (event.altKey) {
+            event.preventDefault();
+            nudgeSelection(event.shiftKey ? 10 : 1);
+          } else stepFrames(event.shiftKey ? 10 : 1);
+          break;
+        case 'ArrowUp':
+        case 'ArrowDown':
+          if (event.altKey) {
+            event.preventDefault();
+            moveSelectionToTrack(event.key === 'ArrowUp' ? -1 : 1);
+          }
+          break;
+        case ',':
+        case '<':
+          stepFrames(event.shiftKey ? -10 : -1);
+          break;
+        case '.':
+        case '>':
           stepFrames(event.shiftKey ? 10 : 1);
+          break;
+        case '[':
+          trimSelectedToPlayhead('start');
+          break;
+        case ']':
+          trimSelectedToPlayhead('end');
           break;
       }
     };
+    // Nudges made while Alt is held are one undo step: close it when Alt goes up.
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Alt') endNudge();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', endNudge);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', endNudge);
+    };
   }, []);
 
   return (

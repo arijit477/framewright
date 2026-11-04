@@ -282,7 +282,9 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
 See [ADR 0020](./adr/0020-keyboard-timeline.md). The timeline canvas is a Tab stop: arrow keys,
 Home/End and Shift+arrows move or extend the selection between clips (`stepClip`), Escape clears
 it, and a live region announces each move. Clicks don't focus it, so for mouse users the arrows
-keep stepping frames; keys it handles are marked so the app-wide shortcuts skip them.
+keep stepping frames; keys it handles are marked so the app-wide shortcuts skip them. Anywhere
+(not just in the timeline), Alt+arrows nudge the selection by frames (one undo step per Alt press)
+or move a clip to another track, `[`/`]` trim to the playhead, and `,`/`.` step frames.
 
 ## Ripple editing
 

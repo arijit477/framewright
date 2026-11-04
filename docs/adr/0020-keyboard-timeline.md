@@ -39,10 +39,28 @@ everywhere, and mouse users rely on that after clicking a clip.
 ## Consequences
 
 - Keyboard users can now select, inspect and edit any clip.
-- Moving and trimming clips from the keyboard isn't covered yet (a possible next step:
-  Alt+arrows to nudge the selection by a frame).
+- Moving and trimming clips from the keyboard followed (addendum below).
 
 ## Alternatives considered
 
 - **Arrow keys always navigate clips:** would take frame stepping away from mouse users.
 - **A visually hidden list of clip buttons:** focus would be invisible to sighted keyboard users.
+
+## Addendum: moving and trimming from the keyboard
+
+These keys work whenever clips are selected and no field has focus, so mouse users get them too:
+
+- **Alt+Left/Right** nudges the selection by a frame (Alt+Shift: 10), landing the main clip on
+  the frame grid. It uses the engine's all-or-nothing `move_clips`; when another clip or the start
+  of the timeline is in the way, nothing moves and that is announced. Nudges made while Alt stays
+  down are one undo step: they run as a gesture (`beginGesture`/`updateGesture`), closed when Alt
+  is released or the window loses focus.
+- **Alt+Up/Down** moves the selected clip to the track above or below of its kind. Past the top
+  video track or the bottom audio track it makes a new track, like a mouse drag. It's for one
+  clip at a time, and the panel says so otherwise.
+- **`[` and `]`** trim the selected clips the playhead is inside so they start or end there: one
+  undo step, and ripple-aware (the clip keeps its place; the rest of its track follows).
+- **`,` and `.`** step the playhead a frame (Shift: 10), so keyboard users in the timeline, where
+  the arrows select clips, can still move the playhead.
+- The live region moved into the store (`announce`, `describeClip`), so any of these actions can
+  say what happened.

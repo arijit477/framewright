@@ -49,9 +49,11 @@ leaves your machine.
   <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove (<kbd>Shift</kbd>+<kbd>Delete</kbd> closes the gap), <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy/cut/paste, <kbd>Ctrl/⌘</kbd>+<kbd>D</kbd> duplicate, <kbd>Ctrl/⌘</kbd>+<kbd>A</kbd> select all, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom; <kbd>Tab</kbd> into the timeline, then the arrow keys,
-  <kbd>Home</kbd>/<kbd>End</kbd> and <kbd>Shift</kbd>+arrows to select clips
+  <kbd>Home</kbd>/<kbd>End</kbd> and <kbd>Shift</kbd>+arrows to select clips;
+  <kbd>Alt</kbd>+arrows to move them (by a frame, or to another track), <kbd>[</kbd>/<kbd>]</kbd> to
+  trim to the playhead, <kbd>,</kbd>/<kbd>.</kbd> to step a frame
 
-Coming next: local AI auto-captions, and moving clips from the keyboard.
+Coming next: local AI auto-captions.
 
 ## Architecture at a glance
 
