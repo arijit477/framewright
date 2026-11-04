@@ -280,7 +280,11 @@ See [ADR 0012](./adr/0012-transitions.md).
   clips Canvas 2D or sets the WebGPU scissor rectangle (reset after each draw).
 - **UI:** a Transition field in the clip panel (style and length) and a marker on the
   timeline at each active transition. The accessible track list names it ("crossfade into …").
-- **Audio** still cuts at the edit point (on the roadmap).
+- **Audio** crossfades under the same window ([ADR 0013](./adr/0013-audio-crossfades.md)): the
+  engine gives each audio segment optional `fadeIn`/`fadeOut` ramps (equal power for crossfade,
+  slide and wipe, extending each sound past the cut only as far as its media goes; linear ramps
+  to and from the cut for a dip), and the shared mixer applies them per frame, so playback and
+  export match.
 
 ## Timeline thumbnails
 

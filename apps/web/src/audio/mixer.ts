@@ -1,14 +1,19 @@
 import type { AudioSegment } from '../engine/types';
+import { fadesOverlap, segmentFade } from './fade';
+import type { Gain } from './resampler';
 
 /** A decoded, resampled audio source for one clip, read sequentially. */
 export interface AudioStream {
-  /** Add `frames` frames times `gain` into the buffers at `offset`, advancing the stream. */
+  /**
+   * Add `frames` frames times `gain` into the buffers at `offset`, advancing
+   * the stream. A per-frame `gain` array is indexed from 0 (frame `offset`).
+   */
   mixInto(
     left: Float32Array,
     right: Float32Array,
     offset: number,
     frames: number,
-    gain: number,
+    gain: Gain,
   ): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -25,10 +30,15 @@ export type StreamFactory = (assetId: string, sourceSeconds: number) => AudioStr
  * segment edge is converted to a frame index the same way, so adjacent
  * segments (e.g. the two halves of a split clip) meet with no gap or overlap,
  * and long renders don't drift.
+ *
+ * Fades (under video transitions) are applied per frame here, so playback and
+ * export get the same crossfades.
  */
 export class Mixer {
   readonly left: Float32Array;
   readonly right: Float32Array;
+  /** Scratch per-frame gains for segments that are fading in this chunk. */
+  private readonly gains: Float32Array;
   private segments: AudioSegment[] = [];
   private readonly streams = new Map<number, AudioStream>();
   private seekUs = 0;
@@ -43,6 +53,7 @@ export class Mixer {
   ) {
     this.left = new Float32Array(chunkFrames);
     this.right = new Float32Array(chunkFrames);
+    this.gains = new Float32Array(chunkFrames);
   }
 
   /** Timeline time of the next frame `next()` will produce. */
@@ -93,7 +104,8 @@ export class Mixer {
         // Registered before awaiting, so a concurrent seek() disposes it too.
         this.streams.set(segment.clipId, stream);
       }
-      await stream.mixInto(this.left, this.right, from - chunkStart, to - from, segment.gain);
+      const gain = this.gainFor(segment, from, to);
+      await stream.mixInto(this.left, this.right, from - chunkStart, to - from, gain);
       if (generation !== this.generation) return false;
     }
 
@@ -111,6 +123,29 @@ export class Mixer {
   dispose(): void {
     this.generation++;
     this.disposeStreams();
+  }
+
+  /**
+   * The segment's gain over frames [from, to): a single value unless a fade
+   * runs through them. The array is reused; that is safe because `next()`
+   * awaits each stream's `mixInto` before computing the next gains.
+   */
+  private gainFor(segment: AudioSegment, from: number, to: number): Gain {
+    const fromUs = this.toTime(from);
+    const toUs = this.toTime(to);
+    if (!fadesOverlap(segment, fromUs, toUs)) {
+      return segment.gain * segmentFade(segment, (fromUs + toUs) / 2);
+    }
+    const gains = this.gains.subarray(0, to - from);
+    for (let i = 0; i < gains.length; i++) {
+      gains[i] = segment.gain * segmentFade(segment, this.toTime(from + i));
+    }
+    return gains;
+  }
+
+  /** A frame index relative to the last seek to timeline time. */
+  private toTime(frame: number): number {
+    return this.seekUs + (frame * 1_000_000) / this.sampleRate;
   }
 
   /** Timeline time to a frame index relative to the last seek. */

@@ -151,6 +151,31 @@ pub struct AudioSegment {
     pub source_in: Micros,
     /// Linear gain (1.0 = unchanged).
     pub gain: f32,
+    /// Gain ramps up from silence over this range (a transition into the clip).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fade_in: Option<AudioFade>,
+    /// Gain ramps down to silence over this range (a transition out of the clip).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fade_out: Option<AudioFade>,
+}
+
+/// A gain ramp over a timeline range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFade {
+    pub start: Micros,
+    pub end: Micros,
+    pub curve: FadeCurve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FadeCurve {
+    /// Straight ramp: for fades to and from silence (dip).
+    Linear,
+    /// sin/cos ramps whose powers sum to 1: a crossfade between two different
+    /// sounds keeps a steady loudness instead of dipping ~3 dB in the middle.
+    EqualPower,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -558,22 +583,19 @@ impl Timeline {
     /// included because their embedded audio plays too; muted and silent clips
     /// are left out so the mixer never decodes them.
     pub fn audio_segments(&self, from: Micros, to: Micros) -> Vec<AudioSegment> {
-        let mut segments: Vec<AudioSegment> = self
-            .tracks
-            .iter()
-            .flat_map(|t| &t.clips)
-            // Text clips have no sound.
-            .filter(|c| c.text.is_none())
-            .filter(|c| !c.muted && c.volume_percent > 0 && c.start < to && from < c.end())
-            .map(|c| AudioSegment {
-                clip_id: c.id,
-                asset_id: c.asset_id.clone(),
-                start: c.start,
-                duration: c.duration,
-                source_in: c.source_in,
-                gain: f32::from(c.volume_percent) / 100.0,
-            })
-            .collect();
+        let mut segments = Vec::new();
+        for track in &self.tracks {
+            for (index, clip) in track.clips.iter().enumerate() {
+                // Titles have no sound; muted and silent clips are never decoded.
+                if clip.text.is_some() || clip.muted || clip.volume_percent == 0 {
+                    continue;
+                }
+                let segment = audio_segment(track, index, clip);
+                if segment.start < to && from < segment.start + segment.duration {
+                    segments.push(segment);
+                }
+            }
+        }
         segments.sort_by_key(|s| (s.start, s.clip_id));
         segments
     }
@@ -651,6 +673,64 @@ fn active_transition(track: &Track, incoming: usize) -> Option<(&Clip, &Clip, Mi
         .min(clip.duration)
         .min(outgoing.duration);
     (duration > 0).then_some((outgoing, clip, duration))
+}
+
+/// A clip's audio, including fades for the transitions into and out of it,
+/// matching the picture (the same `active_transition` rule decides both).
+///
+/// Crossfade, slide and wipe use an equal-power crossfade centred on the cut:
+/// the outgoing sound runs on past the cut and the incoming one starts before
+/// it, as far as each file has media there (audio can't "hold a frame"), with
+/// each fade spanning what's available. Dip fades out to the cut and in after
+/// it, like the picture going through black.
+fn audio_segment(track: &Track, index: usize, clip: &Clip) -> AudioSegment {
+    let mut segment = AudioSegment {
+        clip_id: clip.id,
+        asset_id: clip.asset_id.clone(),
+        start: clip.start,
+        duration: clip.duration,
+        source_in: clip.source_in,
+        gain: f32::from(clip.volume_percent) / 100.0,
+        fade_in: None,
+        fade_out: None,
+    };
+    if let Some((_, _, duration)) = active_transition(track, index) {
+        let cut = clip.start;
+        let half = duration / 2;
+        segment.fade_in = Some(if is_dip(clip) {
+            fade(cut, cut + half, FadeCurve::Linear)
+        } else {
+            let early = half.min(clip.source_in);
+            segment.start -= early;
+            segment.duration += early;
+            segment.source_in -= early;
+            fade(cut - early, cut + half, FadeCurve::EqualPower)
+        });
+    }
+    if let Some((_, next, duration)) = active_transition(track, index + 1) {
+        let cut = clip.end();
+        let half = duration / 2;
+        segment.fade_out = Some(if is_dip(next) {
+            fade(cut - half, cut, FadeCurve::Linear)
+        } else {
+            let remaining = clip.source_duration - (clip.source_in + clip.duration);
+            let late = half.min(remaining.max(0));
+            segment.duration += late;
+            fade(cut - half, cut + late, FadeCurve::EqualPower)
+        });
+    }
+    segment
+}
+
+fn is_dip(incoming: &Clip) -> bool {
+    matches!(
+        incoming.transition_in.map(|t| t.kind),
+        Some(crate::transition::TransitionKind::Dip)
+    )
+}
+
+fn fade(start: Micros, end: Micros, curve: FadeCurve) -> AudioFade {
+    AudioFade { start, end, curve }
 }
 
 /// A clip's layer at timeline time `at` (which may be just outside the clip
@@ -1114,6 +1194,105 @@ mod tests {
             "clamped to 0.4 s around the cut"
         );
         assert_eq!(tl.resolve(5_700_000).len(), 1);
+    }
+
+    fn fade_of(segments: &[AudioSegment], clip: ClipId) -> (Option<AudioFade>, Option<AudioFade>) {
+        let s = segments.iter().find(|s| s.clip_id == clip).unwrap();
+        (s.fade_in, s.fade_out)
+    }
+
+    #[test]
+    fn crossfades_extend_both_sounds_across_the_cut() {
+        let (mut tl, _, a, b) = two_clips(); // a: 0-6 s (source 0-6 of 10), b: 6-9 s (source 2-5)
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        let sa = segments.iter().find(|s| s.clip_id == a).unwrap();
+        let sb = segments.iter().find(|s| s.clip_id == b).unwrap();
+        // a plays on to 6.5 s, fading out from 5.5 s; b starts at 5.5 s, fading in to 6.5 s.
+        assert_eq!(sa.start + sa.duration, 6_500_000);
+        assert_eq!(
+            sa.fade_out,
+            Some(fade(5_500_000, 6_500_000, FadeCurve::EqualPower))
+        );
+        assert_eq!((sb.start, sb.source_in), (5_500_000, 1_500_000));
+        assert_eq!(
+            sb.fade_in,
+            Some(fade(5_500_000, 6_500_000, FadeCurve::EqualPower))
+        );
+        assert_eq!((sa.fade_in, sb.fade_out), (None, None));
+    }
+
+    #[test]
+    fn crossfades_only_extend_as_far_as_the_media_goes() {
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        // a uses its source to the very end; b starts at its source's very beginning.
+        let a = tl.add_clip(track, "a", 0, 6 * S, 0, 6 * S).unwrap();
+        let b = tl.add_clip(track, "b", 6 * S, 3 * S, 0, 3 * S).unwrap();
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        let (_, a_out) = fade_of(&segments, a);
+        let (b_in, _) = fade_of(&segments, b);
+        // No media past a's end or before b's start: the fades span what exists.
+        assert_eq!(a_out, Some(fade(5_500_000, 6 * S, FadeCurve::EqualPower)));
+        assert_eq!(b_in, Some(fade(6 * S, 6_500_000, FadeCurve::EqualPower)));
+        assert!(segments.iter().all(|s| s.source_in >= 0));
+    }
+
+    #[test]
+    fn dips_fade_out_to_the_cut_then_in() {
+        let (mut tl, _, a, b) = two_clips();
+        tl.set_clip_transition(
+            b,
+            Some(Transition {
+                kind: crate::transition::TransitionKind::Dip,
+                duration_ms: 1000,
+            }),
+        )
+        .unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        assert_eq!(
+            fade_of(&segments, a).1,
+            Some(fade(5_500_000, 6 * S, FadeCurve::Linear))
+        );
+        assert_eq!(
+            fade_of(&segments, b).0,
+            Some(fade(6 * S, 6_500_000, FadeCurve::Linear))
+        );
+        let sb = segments.iter().find(|s| s.clip_id == b).unwrap();
+        assert_eq!(sb.start, 6 * S, "no early start for a dip");
+    }
+
+    #[test]
+    fn no_fades_without_an_active_transition_and_muting_still_fades_the_other_side() {
+        let (mut tl, _, a, b) = two_clips();
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+        tl.move_clip(b, 7 * S, None).unwrap(); // apart: inactive
+        assert!(tl
+            .audio_segments(0, 10 * S)
+            .iter()
+            .all(|s| s.fade_in.is_none() && s.fade_out.is_none()));
+        tl.move_clip(b, 6 * S, None).unwrap();
+        tl.set_clip_muted(a, true).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        assert_eq!(segments.len(), 1);
+        assert!(
+            segments[0].fade_in.is_some(),
+            "b still fades in under the picture"
+        );
+    }
+
+    #[test]
+    fn the_query_window_includes_the_extended_sound() {
+        let (mut tl, _, _, b) = two_clips();
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+        // 5.6 s is before b starts on the timeline, but b's sound has already begun.
+        let ids: Vec<_> = tl
+            .audio_segments(5_600_000, 5_700_000)
+            .iter()
+            .map(|s| s.clip_id)
+            .collect();
+        assert!(ids.contains(&b));
     }
 
     #[test]

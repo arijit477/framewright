@@ -26,6 +26,13 @@ export default function globalSetup() {
     FIXTURES.overlay,
     '-f lavfi -i color=c=red:size=1280x720:rate=30 -t 3 -c:v libvpx-vp9 -b:v 200k -deadline realtime',
   );
+  // 4 s solid blue video with an 880 Hz tone: an octave above tone.webm, so the
+  // two can be measured separately where they overlap.
+  make(
+    FIXTURES.beep,
+    '-f lavfi -i color=c=blue:size=1280x720:rate=30 -f lavfi -i sine=frequency=880:sample_rate=48000 ' +
+      '-t 4 -c:v libvpx-vp9 -b:v 200k -deadline realtime -c:a libopus -b:a 96k -shortest',
+  );
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.
   make(
     FIXTURES.audio,

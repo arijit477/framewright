@@ -1,6 +1,6 @@
 import { AudioSampleSink, type InputAudioTrack } from 'mediabunny';
 import type { AudioStream } from './mixer';
-import { Resampler } from './resampler';
+import { Resampler, type Gain } from './resampler';
 
 /** Decodes one clip's source audio sequentially from a start time, resampled to `outputRate`. */
 export class SourceStream implements AudioStream {
@@ -22,7 +22,7 @@ export class SourceStream implements AudioStream {
     right: Float32Array,
     offset: number,
     frames: number,
-    gain: number,
+    gain: Gain,
   ): Promise<void> {
     while (this.resampler.needs(frames)) {
       const { value: sample, done } = await this.iterator.next();
