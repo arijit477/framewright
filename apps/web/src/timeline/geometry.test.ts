@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { TimelineSnapshot } from '../engine/types';
 import { secondsToMicros } from '../lib/time';
 import {
+  clipsInRect,
   dropTarget,
+  rectBetween,
   hitTest,
   maxScrollY,
   peakToHeight,
@@ -221,5 +223,48 @@ describe('trimPreview', () => {
   it('never draws a negative length', () => {
     expect(trimPreview(at2to6, 'end', 0, true)).toMatchObject({ end: 2 * S, shift: -4 * S });
     expect(trimPreview(at2to6, 'start', 9 * S, false).start).toBe(6 * S);
+  });
+});
+
+describe('selection box', () => {
+  const S = 1_000_000;
+  const clip = (id: number, start: number, seconds: number) => ({
+    ...timeline.tracks[0]!.clips[0]!,
+    id,
+    start: start * S,
+    duration: seconds * S,
+  });
+  // Display rows: V2 (clip 3 at 4-6 s), V1 (clips 1 at 0-2 s, 2 at 3-4 s), A1 (clip 4 at 1-5 s).
+  const multi: TimelineSnapshot = {
+    tracks: [
+      { id: 10, kind: 'video', clips: [clip(1, 0, 2), clip(2, 3, 1)] },
+      { id: 11, kind: 'audio', clips: [clip(4, 1, 4)] },
+      { id: 12, kind: 'video', clips: [clip(3, 4, 2)] },
+    ],
+  };
+  const x = (s: number) => timeToX(s * S, view);
+  const rowMiddle = (row: number) => trackTop(row) + TRACK_HEIGHT / 2;
+
+  it('normalises corners dragged in any direction', () => {
+    expect(rectBetween(10, 50, 2, 20)).toEqual({ left: 2, top: 20, right: 10, bottom: 50 });
+  });
+
+  it('selects clips the box touches, across rows', () => {
+    // From 1.5 s on the top row down to 3.5 s on the middle row.
+    const box = rectBetween(x(1.5), rowMiddle(0), x(3.5), rowMiddle(1));
+    expect(clipsInRect(multi, view, box)).toEqual([1, 2]);
+    // Down into the audio row as well picks up its clip; the top row's clip (4-6 s) isn't reached.
+    expect(
+      clipsInRect(multi, view, rectBetween(x(1.5), rowMiddle(0), x(3.5), rowMiddle(2))),
+    ).toEqual([1, 2, 4]);
+  });
+
+  it('selects nothing in empty space', () => {
+    expect(clipsInRect(multi, view, rectBetween(x(7), rowMiddle(0), x(9), rowMiddle(2)))).toEqual(
+      [],
+    );
+    // Within a row's time range but in the gap between rows.
+    const gapTop = trackTop(1) - 5;
+    expect(clipsInRect(multi, view, rectBetween(x(0), gapTop, x(1), gapTop + 2))).toEqual([]);
   });
 });

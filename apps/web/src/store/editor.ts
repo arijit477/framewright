@@ -515,12 +515,16 @@ export function toggleClipSelection(clipId: number): void {
   set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
 }
 
-/** Select every clip on the timeline (Ctrl/⌘+A). */
-export function selectAll(): void {
-  const { timeline, selectedClipId } = get();
-  const ids = timeline.tracks.flatMap((t) => t.clips.map((c) => c.id));
+/** Replace the selection (the panel keeps its clip if it's still selected). */
+export function setSelection(ids: number[]): void {
+  const { selectedClipId } = get();
   const primary = selectedClipId !== null && ids.includes(selectedClipId) ? selectedClipId : null;
   set({ selectedClipIds: ids, selectedClipId: primary ?? ids.at(-1) ?? null });
+}
+
+/** Select every clip on the timeline (Ctrl/⌘+A). */
+export function selectAll(): void {
+  setSelection(get().timeline.tracks.flatMap((t) => t.clips.map((c) => c.id)));
 }
 
 export function selectedClip(state: EditorState = get()): Clip | null {

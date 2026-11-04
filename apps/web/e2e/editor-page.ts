@@ -111,6 +111,26 @@ export class EditorPage {
     await this.page.mouse.up();
   }
 
+  /**
+   * Drag a selection box on empty timeline space, from display row `from.row`
+   * at `from.seconds` to `to`, optionally holding a modifier (to add).
+   */
+  async dragBox(
+    from: { row: number; seconds: number },
+    to: { row: number; seconds: number },
+    { modifier }: { modifier?: string } = {},
+  ) {
+    const box = await this.box();
+    const rowY = (r: number) =>
+      RULER_HEIGHT + TRACK_GAP + r * (TRACK_HEIGHT + TRACK_GAP) + TRACK_HEIGHT / 2;
+    if (modifier) await this.page.keyboard.down(modifier);
+    await this.page.mouse.move(box.x + this.xAt(from.seconds), box.y + rowY(from.row));
+    await this.page.mouse.down();
+    await this.page.mouse.move(box.x + this.xAt(to.seconds), box.y + rowY(to.row), { steps: 6 });
+    await this.page.mouse.up();
+    if (modifier) await this.page.keyboard.up(modifier);
+  }
+
   async press(key: string) {
     await this.page.keyboard.press(key);
   }

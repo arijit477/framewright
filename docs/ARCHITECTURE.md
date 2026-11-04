@@ -265,7 +265,8 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
 See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
 
 - **Selection (`store/editor.ts`):** `selectedClipIds` (all) and `selectedClipId` (the one the
-  panel edits). Ctrl/⌘/Shift-click toggles, Ctrl/⌘+A selects all.
+  panel edits). Ctrl/⌘/Shift-click toggles, Ctrl/⌘+A selects all, and dragging on empty track
+  space draws a selection box (`clipsInRect`; additive with a modifier). The ruler scrubs.
 - **Engine:** `move_clips` (one time shift for many clips, all or nothing), `copy_clips` /
   `paste_clips` (clips with their tracks, relative times; paste reuses the original tracks if
   there's room, otherwise adds tracks, never overwrites).

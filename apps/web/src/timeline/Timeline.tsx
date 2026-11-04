@@ -8,6 +8,7 @@ import {
   seek,
   moveSelection,
   selectClip,
+  setSelection,
   toggleClipSelection,
   setView,
   thumbnails,
@@ -24,6 +25,9 @@ import {
   peakToHeight,
   transitionWindow,
   trimPreview,
+  clipsInRect,
+  rectBetween,
+  type Rect,
   RULER_HEIGHT,
   snap,
   timeToX,
@@ -39,6 +43,8 @@ import {
 const COLORS = {
   background: '#101015',
   keyframe: '#fbbf24',
+  marquee: '#818cf8',
+  marqueeFill: 'rgba(99, 102, 241, 0.18)',
   ruler: '#17171e',
   tick: '#3a3a48',
   label: '#8c8ca1',
@@ -77,7 +83,31 @@ interface MoveDrag {
 }
 
 /** A drag in progress. Edits are previewed locally and committed on release. */
-type Drag = { kind: 'scrub' } | MoveDrag | TrimDrag;
+type Drag = { kind: 'scrub' } | MoveDrag | TrimDrag | MarqueeDrag;
+
+/**
+ * A press on empty track space: a click deselects and moves the playhead
+ * there; a drag draws a selection box (adding to the selection with
+ * Ctrl/⌘/Shift held).
+ */
+interface MarqueeDrag {
+  kind: 'marquee';
+  /** Where the press started and where the pointer is now, in canvas pixels. */
+  x0: number;
+  y0: number;
+  x: number;
+  y: number;
+  /** Becomes true once the pointer has moved far enough to count as a drag. */
+  active: boolean;
+  /** Selection kept underneath the box (empty unless adding). */
+  base: number[];
+  additive: boolean;
+  /** Timeline time of the press, for a click. */
+  at: number;
+}
+
+/** Pointer travel (px) before a press on empty space becomes a selection box. */
+const MARQUEE_THRESHOLD_PX = 4;
 
 interface TrimDrag {
   kind: 'trim';
@@ -192,10 +222,22 @@ export function Timeline() {
             trackKind: timeline.tracks.find((t) => t.id === hit.trackId)?.kind ?? 'video',
             target: { type: 'track', trackId: hit.trackId },
           };
-    } else {
-      if (hit.kind !== 'ruler') selectClip(null);
+    } else if (hit.kind === 'ruler') {
       dragRef.current = { kind: 'scrub' };
       seek(at);
+    } else {
+      const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+      dragRef.current = {
+        kind: 'marquee',
+        x0: x,
+        y0: y,
+        x,
+        y,
+        active: false,
+        base: additive ? useEditor.getState().selectedClipIds : [],
+        additive,
+        at,
+      };
     }
     draw();
   };
@@ -242,13 +284,27 @@ export function Timeline() {
         drag.previewAt = snap(at, snapTargets(drag.clip.id), view);
         draw();
         break;
+      case 'marquee': {
+        drag.x = x;
+        drag.y = y;
+        if (!drag.active && Math.hypot(x - drag.x0, y - drag.y0) < MARQUEE_THRESHOLD_PX) break;
+        drag.active = true;
+        const inBox = clipsInRect(timeline, view, rectBetween(drag.x0, drag.y0, x, y));
+        setSelection([...new Set([...drag.base, ...inBox])]);
+        draw();
+        break;
+      }
     }
   };
 
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
-    if (drag?.kind === 'move' && drag.group) {
+    if (drag?.kind === 'marquee' && !drag.active) {
+      // A plain click on empty space: deselect (unless adding) and move the playhead.
+      if (!drag.additive) selectClip(null);
+      seek(drag.at);
+    } else if (drag?.kind === 'move' && drag.group) {
       const delta = drag.previewStart - drag.clip.start;
       // A click without moving narrows the selection to that clip, as in other editors.
       if (delta === 0) selectClip(drag.clip.id);
@@ -390,6 +446,7 @@ function paint(
         !moving?.group &&
         (!drag ||
           drag.kind === 'scrub' ||
+          drag.kind === 'marquee' ||
           (drag.clip.id !== clip.id && drag.clip.id !== before?.id))
       ) {
         const window = transitionWindow(before, clip);
@@ -407,6 +464,9 @@ function paint(
     }
   });
 
+  if (drag?.kind === 'marquee' && drag.active) {
+    drawMarquee(ctx, rectBetween(drag.x0, Math.max(drag.y0, RULER_HEIGHT), drag.x, drag.y));
+  }
   drawRuler(ctx, view, width);
   // After the ruler: the hint for a new top track sits right under it.
   if (moving?.target.type === 'new') drawNewTrackHint(ctx, state, drag, moving, rows, width);
@@ -442,7 +502,7 @@ function drawClip(
   let end = clipEnd(clip) + offset;
   // Where the clip's media is anchored: the timeline time that would show `sourceIn`.
   let origin = start;
-  if (drag && drag.kind !== 'scrub' && drag.clip.id === clip.id) {
+  if ((drag?.kind === 'move' || drag?.kind === 'trim') && drag.clip.id === clip.id) {
     if (drag.kind === 'move') {
       start = drag.previewStart;
       end = start + clip.duration;
@@ -559,6 +619,18 @@ function drawClip(
     if (at < start || at > end) continue;
     drawKeyframe(ctx, timeToX(at, view), top + TRACK_HEIGHT - 9, ghost);
   }
+}
+
+/** The selection box: a translucent fill with a crisp outline. */
+function drawMarquee(ctx: CanvasRenderingContext2D, rect: Rect) {
+  const top = Math.max(rect.top, RULER_HEIGHT); // never over the ruler
+  ctx.save();
+  ctx.fillStyle = COLORS.marqueeFill;
+  ctx.strokeStyle = COLORS.marquee;
+  ctx.lineWidth = 1;
+  ctx.fillRect(rect.left, top, rect.right - rect.left, rect.bottom - top);
+  ctx.strokeRect(rect.left + 0.5, top + 0.5, rect.right - rect.left - 1, rect.bottom - top - 1);
+  ctx.restore();
 }
 
 function drawKeyframe(ctx: CanvasRenderingContext2D, x: number, y: number, ghost: boolean) {
