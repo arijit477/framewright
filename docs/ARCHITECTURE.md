@@ -173,9 +173,18 @@ project JSON ─▶ TimelineEngine (own WASM instance in the worker)
   up to the end of each video frame, so the muxer interleaves without buffering much.
 - **MP4 fast start:** the index (`moov`) is written before the media data, so files start
   playing before they have fully downloaded.
-- **Limits today:** the file is assembled in memory (`BufferTarget`), which is fine for typical
-  social-media lengths. Long 4K exports should stream to disk (roadmap). Export composites with
-  Canvas 2D (see the ADR for why).
+- **Streaming to disk** (`export/sink.ts`, [ADR 0009](./adr/0009-stream-exports-to-disk.md)):
+  the encoded file is written chunk by chunk at its final position, so even long 4K exports
+  never have to fit in memory:
+  - **Chrome and Edge:** the Save dialog comes first, and the export streams into the chosen file
+    (`FileSystemWritableFileStream`; a cancel discards the temporary swap file);
+  - **other browsers:** it streams into browser storage (OPFS, through a synchronous access handle
+    in the worker) and is downloaded from there as a disk-backed `File`;
+  - **memory** only as a last resort, for browsers without OPFS.
+    Streamed MP4s use `fastStart: 'reserve'` with packet-count upper bounds
+    (`maximumPacketCounts`), so they keep the index at the front. Partial files are deleted on
+    cancel or error, and stored exports are removed before the next export starts.
+- Export composites with Canvas 2D (see ADR 0006 for why).
 
 ## Multiple tracks
 

@@ -22,7 +22,8 @@ encoders they ship (for example, open-source Chromium has no AAC encoder).
 - Export composites with **Canvas 2D**. `CanvasSource` reads frames back from the canvas;
   that path is supported everywhere and is the one our tests verify. WebGPU export is a later
   optimisation (roadmap), to be enabled once it can be verified on real GPUs in CI.
-- The output is assembled in memory (`BufferTarget`) with MP4 fast start.
+- The output is assembled in memory (`BufferTarget`) with MP4 fast start. _(Superseded by
+  [ADR 0009](./0009-stream-exports-to-disk.md): exports now stream to disk.)_
 
 ## Consequences
 

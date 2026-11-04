@@ -81,7 +81,7 @@ function Settings({ state }: { state: ExportState }) {
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        startExport();
+        void startExport();
       }}
     >
       {state.phase === 'error' && (
@@ -209,7 +209,7 @@ function Done({ result }: { result: NonNullable<ExportState['result']> }) {
         ✓ Exported in {formatSeconds(result.elapsedMs / 1000)} · {formatBytes(result.bytes)}
       </p>
       <p className="muted">
-        {result.fileName} · video {result.videoCodec}
+        {result.url ? result.fileName : `Saved to ${result.fileName}`} · video {result.videoCodec}
         {result.audioCodec ? ` · audio ${result.audioCodec}` : ' · no audio'}
       </p>
       {result.warnings.map((w) => (
@@ -221,9 +221,11 @@ function Done({ result }: { result: NonNullable<ExportState['result']> }) {
         <button type="button" onClick={closeExport}>
           Close
         </button>
-        <a className="button primary" href={result.url} download={result.fileName}>
-          Download
-        </a>
+        {result.url && (
+          <a className="button primary" href={result.url} download={result.fileName}>
+            Download
+          </a>
+        )}
       </div>
     </div>
   );

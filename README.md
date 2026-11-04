@@ -16,7 +16,8 @@ leaves your machine.
 - Audio playback with mixing, per-clip volume (0–200%) and mute, waveforms and a level meter
 - Sample-accurate A/V sync: picture follows the audio clock
 - Export to MP4 (H.264) or WebM (VP9) from 480p to 4K at 24–60 fps, rendered faster than real
-  time in the background, with progress, ETA and cancel
+  time in the background, with progress, ETA and cancel; streamed straight to disk, so even long
+  4K exports don't need to fit in memory
 - Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom, with video
   thumbnails (filmstrip) on every clip
 - Multiple video and audio tracks: drag a clip above the top track for a new layer (B-roll,

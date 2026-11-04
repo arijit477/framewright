@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatSeconds,
   frameTimeUs,
+  maximumPacketCounts,
   RESOLUTIONS,
   sanitizeSettings,
   totalFrames,
@@ -106,5 +107,21 @@ describe('sanitizeSettings', () => {
       DEFAULT_EXPORT_SETTINGS,
     );
     expect(sanitizeSettings(null)).toEqual(DEFAULT_EXPORT_SETTINGS);
+  });
+});
+
+describe('maximumPacketCounts', () => {
+  it('bounds video by frame count and audio by 10 ms packets, with a margin', () => {
+    const { video, audio } = maximumPacketCounts(6_000_000, 30);
+    expect(video).toBeGreaterThanOrEqual(180);
+    expect(video).toBeLessThan(260);
+    // 48 kHz AAC (1024-sample packets) needs 282 for 6 s; Opus (20 ms) needs 300.
+    expect(audio).toBeGreaterThanOrEqual(300 * 1.3);
+  });
+
+  it('never returns zero, even for empty timelines', () => {
+    const { video, audio } = maximumPacketCounts(0, 30);
+    expect(video).toBeGreaterThan(0);
+    expect(audio).toBeGreaterThan(0);
   });
 });

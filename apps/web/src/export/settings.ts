@@ -135,3 +135,19 @@ export function sanitizeSettings(raw: unknown): ExportSettings {
     quality: pick(value.quality, ['low', 'medium', 'high'] as const, d.quality),
   };
 }
+
+/**
+ * Upper bounds on packet counts, which MP4 "reserve" fast start needs so it can
+ * leave room for the index at the start of a streamed file. Video has one
+ * packet per frame; audio packets are at least ~10 ms (per mediabunny's
+ * guidance), and both get a 33% safety margin. Overestimating only wastes a
+ * few kilobytes of reserved space; underestimating would fail the export.
+ */
+export function maximumPacketCounts(durationUs: number, fps: number) {
+  const seconds = Math.max(0, durationUs) / 1_000_000;
+  const margin = 4 / 3;
+  return {
+    video: Math.ceil((totalFrames(durationUs, fps) + 1) * margin),
+    audio: Math.ceil((seconds * 100 + 1) * margin),
+  };
+}

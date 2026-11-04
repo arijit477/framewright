@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -108,4 +109,21 @@ export function frameDifference(a: Buffer, b: Buffer): number {
   let total = 0;
   for (let i = 0; i < a.length; i++) total += Math.abs(a[i]! - b[i]!);
   return total / a.length;
+}
+
+/** Top-level box types of an MP4, in order (fast start = "moov" before "mdat"). */
+export function mp4Boxes(path: string): string[] {
+  const data = readFileSync(path);
+  const boxes: string[] = [];
+  let at = 0;
+  while (at + 8 <= data.length) {
+    let size = data.readUInt32BE(at);
+    const type = data.toString('latin1', at + 4, at + 8);
+    if (size === 1) size = Number(data.readBigUInt64BE(at + 8)); // 64-bit size
+    if (size === 0) size = data.length - at; // box runs to the end of the file
+    if (size < 8) break;
+    boxes.push(type);
+    at += size;
+  }
+  return boxes;
 }
