@@ -23,7 +23,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Short fades at clip edges to avoid clicks on hard cuts
 - [ ] Higher-quality resampling for export (windowed sinc)
 - [x] **Export** to MP4 (H.264 + AAC/Opus) and WebM (VP9/Opus): 480p–4K, 24–60 fps, progress, ETA, cancel
-- [ ] Stream large exports straight to disk (File System Access API) instead of memory
+- [x] Stream exports straight to disk (Save dialog on Chrome/Edge, browser storage elsewhere)
 - [ ] Export benchmark vs FFmpeg.wasm in the README
 - [ ] WebGPU compositing for export (currently Canvas 2D; see ADR 0006)
 - [x] Multiple video tracks: drag clips between tracks or onto a new track; empty tracks removed automatically
