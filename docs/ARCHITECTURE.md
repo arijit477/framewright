@@ -260,6 +260,20 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
 
+## Speed
+
+See [ADR 0016](./adr/0016-speed-control.md).
+
+- **Model:** `speedPercent` (25–400) on media clips. `duration` is timeline length, covering
+  `duration × speed` of media. Changing speed keeps the media and changes the length, and is
+  refused if a slower clip would run into the next one.
+- **Mapping:** `Clip::source_at` / `to_source` / `to_timeline` in the engine (mirrored by
+  `sourceAt` / `timelineAt` in `engine/types.ts` for drawing). Used by layers, keyframes, trims,
+  splits and the audio extensions under transitions.
+- **Audio:** segments carry `speed`. `SourceStream` time-stretches with WSOLA
+  (`audio/time-stretch.ts`) so the pitch is kept, in both playback and export.
+- **UI:** a Speed menu beside the clip's volume. The timeline label and track list show the speed.
+
 ## Keyframes
 
 See [ADR 0014](./adr/0014-keyframes.md).

@@ -17,6 +17,8 @@ export interface Clip {
   /** Audio gain in percent (100 = unchanged, max 200). */
   volumePercent: number;
   muted: boolean;
+  /** Playback speed in percent (omitted = 100). `duration` covers `duration × speed` of media. */
+  speedPercent?: number;
   /** Set for text clips (no media; `assetId` is empty). */
   text?: TextContent;
   /** Placement of a media clip; omitted when unchanged. Unused while keyframed. */
@@ -166,6 +168,8 @@ export interface AudioSegment {
   start: Micros;
   duration: Micros;
   sourceIn: Micros;
+  /** Source media per unit of timeline time (1 = normal speed). */
+  speed: number;
   /** Linear gain (1 = unchanged). */
   gain: number;
   /** Fade from silence, under a transition into this clip. */
@@ -183,5 +187,17 @@ export interface AudioFade {
 }
 
 export const MAX_VOLUME_PERCENT = 200;
+export const SPEED_LIMITS = { minPercent: 25, maxPercent: 400 } as const;
+
+/** A clip's speed as a factor (1 = normal). */
+export const clipSpeed = (clip: Clip): number => (clip.speedPercent ?? 100) / 100;
+
+/** The source time shown at timeline time `at` (mirrors the engine's `Clip::source_at`). */
+export const sourceAt = (clip: Clip, at: Micros): Micros =>
+  clip.sourceIn + Math.round((at - clip.start) * clipSpeed(clip));
+
+/** The timeline time at which a source time is shown. */
+export const timelineAt = (clip: Clip, sourceTime: Micros): Micros =>
+  clip.start + Math.round((sourceTime - clip.sourceIn) / clipSpeed(clip));
 
 export const clipEnd = (clip: Clip): Micros => clip.start + clip.duration;

@@ -1,13 +1,51 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_VOLUME_PERCENT, type Clip } from '../engine/types';
-import { audio, selectedClip, setClipVolume, toggleMute, useEditor } from '../store/editor';
+import {
+  audio,
+  selectedClip,
+  setClipSpeed,
+  setClipVolume,
+  toggleMute,
+  useEditor,
+} from '../store/editor';
 
-/** Volume and mute for the selected clip. */
+/** Speeds offered in the menu (percent). Any 25–400 is valid in a project. */
+const SPEEDS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
+
+/** Speed, volume and mute for the selected clip. */
 export function ClipAudio() {
   const clip = useEditor(selectedClip);
-  if (!clip || clip.text) return null; // text clips have no sound
-  // Remount per clip (and per committed value) so the draft resets.
-  return <VolumeControl key={`${clip.id}:${clip.volumePercent}`} clip={clip} />;
+  if (!clip || clip.text) return null; // text clips have no sound or speed
+  return (
+    <div className="group clip-audio" aria-label="Clip controls">
+      <SpeedControl clip={clip} />
+      {/* Remount per clip (and per committed value) so the draft resets. */}
+      <VolumeControl key={`${clip.id}:${clip.volumePercent}`} clip={clip} />
+    </div>
+  );
+}
+
+function SpeedControl({ clip }: { clip: Clip }) {
+  const current = clip.speedPercent ?? 100;
+  const options = SPEEDS.includes(current) ? SPEEDS : [...SPEEDS, current].sort((a, b) => a - b);
+  return (
+    <>
+      <label className="speed" title="Playback speed (the pitch of the sound is kept)">
+        Speed
+        <select
+          aria-label="Speed"
+          value={current}
+          onChange={(e) => setClipSpeed(clip.id, Number(e.target.value))}
+        >
+          {options.map((percent) => (
+            <option key={percent} value={percent}>
+              {percent / 100}×
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
 }
 
 function VolumeControl({ clip }: { clip: Clip }) {
@@ -17,7 +55,7 @@ function VolumeControl({ clip }: { clip: Clip }) {
     if (draft !== clip.volumePercent) setClipVolume(clip.id, draft);
   };
   return (
-    <div className="group clip-audio" aria-label="Clip audio">
+    <>
       <button
         onClick={() => toggleMute(clip.id)}
         aria-pressed={clip.muted}
@@ -42,7 +80,7 @@ function VolumeControl({ clip }: { clip: Clip }) {
         />
         <span className="volume-value">{draft}%</span>
       </label>
-    </div>
+    </>
   );
 }
 

@@ -131,6 +131,11 @@ export class TimelineEngine {
     this.inner.setClipVolume(clipId, Math.round(percent));
   }
 
+  /** Playback speed in percent (25–400); the clip's length changes to match. */
+  setClipSpeed(clipId: number, percent: number): void {
+    this.inner.setClipSpeed(clipId, Math.round(percent));
+  }
+
   setClipMuted(clipId: number, muted: boolean): void {
     this.inner.setClipMuted(clipId, muted);
   }

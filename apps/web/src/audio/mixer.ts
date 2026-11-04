@@ -18,8 +18,15 @@ export interface AudioStream {
   dispose(): Promise<void>;
 }
 
-/** Opens a stream for an asset starting at a source time, or null if it has no audio. */
-export type StreamFactory = (assetId: string, sourceSeconds: number) => AudioStream | null;
+/**
+ * Opens a stream for an asset starting at a source time, playing at `speed`
+ * (1 = normal; pitch is preserved), or null if it has no audio.
+ */
+export type StreamFactory = (
+  assetId: string,
+  sourceSeconds: number,
+  speed: number,
+) => AudioStream | null;
 
 /**
  * Mixes the timeline's audio, one fixed-size chunk at a time. Used both for
@@ -97,8 +104,12 @@ export class Mixer {
       let stream = this.streams.get(segment.clipId);
       if (!stream) {
         const timelineUs = this.seekUs + (from * 1_000_000) / this.sampleRate;
-        const sourceSeconds = (segment.sourceIn + (timelineUs - segment.start)) / 1_000_000;
-        const opened = this.openStream(segment.assetId, Math.max(0, sourceSeconds));
+        const sourceUs = segment.sourceIn + (timelineUs - segment.start) * segment.speed;
+        const opened = this.openStream(
+          segment.assetId,
+          Math.max(0, sourceUs / 1_000_000),
+          segment.speed,
+        );
         if (!opened) continue;
         stream = opened;
         // Registered before awaiting, so a concurrent seek() disposes it too.

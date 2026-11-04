@@ -1,20 +1,31 @@
 import { AudioSampleSink, type InputAudioTrack } from 'mediabunny';
 import type { AudioStream } from './mixer';
 import { Resampler, type Gain } from './resampler';
+import { TimeStretcher } from './time-stretch';
 
-/** Decodes one clip's source audio sequentially from a start time, resampled to `outputRate`. */
+/** Resampled frames handed to the time stretcher at a time. */
+const STRETCH_CHUNK = 2048;
+
+/**
+ * Decodes one clip's source audio sequentially from a start time, resampled to
+ * `outputRate`, and time-stretched (keeping the pitch) when `speed` isn't 1.
+ */
 export class SourceStream implements AudioStream {
   private readonly iterator;
   private readonly resampler: Resampler;
+  private readonly stretcher: TimeStretcher | null;
   private first = true;
+  private ended = false;
 
   constructor(
     track: InputAudioTrack,
     private readonly startSeconds: number,
     outputRate: number,
+    speed = 1,
   ) {
     this.iterator = new AudioSampleSink(track).samples(startSeconds);
     this.resampler = new Resampler(track.sampleRate / outputRate);
+    this.stretcher = speed === 1 ? null : new TimeStretcher(speed, outputRate);
   }
 
   async mixInto(
@@ -24,10 +35,31 @@ export class SourceStream implements AudioStream {
     frames: number,
     gain: Gain,
   ): Promise<void> {
+    const stretcher = this.stretcher;
+    if (!stretcher) {
+      await this.decodeFor(frames);
+      this.resampler.mixInto(left, right, offset, frames, gain);
+      return;
+    }
+    // Feed the stretcher resampled audio until it can produce the frames asked for.
+    while (stretcher.available < frames) {
+      await this.decodeFor(STRETCH_CHUNK);
+      const l = new Float32Array(STRETCH_CHUNK);
+      const r = new Float32Array(STRETCH_CHUNK);
+      this.resampler.mixInto(l, r, 0, STRETCH_CHUNK, 1); // silence once the media ends
+      stretcher.push(l, r);
+    }
+    stretcher.mixInto(left, right, offset, frames, gain);
+  }
+
+  /** Decode until the resampler can produce `frames` frames (or the media ends). */
+  private async decodeFor(frames: number): Promise<void> {
+    if (this.ended) return;
     while (this.resampler.needs(frames)) {
       const { value: sample, done } = await this.iterator.next();
       if (done) {
         this.resampler.end();
+        this.ended = true;
         break;
       }
       try {
@@ -49,7 +81,6 @@ export class SourceStream implements AudioStream {
         sample.close();
       }
     }
-    this.resampler.mixInto(left, right, offset, frames, gain);
   }
 
   async dispose(): Promise<void> {
@@ -60,7 +91,7 @@ export class SourceStream implements AudioStream {
 /** Builds a mixer stream factory over a set of decodable audio tracks. */
 export const streamsFrom =
   (tracks: ReadonlyMap<string, InputAudioTrack>, outputRate: number) =>
-  (assetId: string, sourceSeconds: number): SourceStream | null => {
+  (assetId: string, sourceSeconds: number, speed: number): SourceStream | null => {
     const track = tracks.get(assetId);
-    return track ? new SourceStream(track, sourceSeconds, outputRate) : null;
+    return track ? new SourceStream(track, sourceSeconds, outputRate, speed) : null;
   };
