@@ -5,8 +5,19 @@ import {
   type TextContent,
   type Transform,
 } from '../engine/types';
-import { adjustPixels, colorParams, cssFilter, isNeutral, NEUTRAL_COLOR } from './color';
-import { lutPixels, makeLut, toHalf, type Lut } from './lut';
+import {
+  adjustPixels,
+  adjustRgb,
+  colorParams,
+  cssFilter,
+  hasToneAdjustment,
+  hasWhiteBalance,
+  NEUTRAL_COLOR,
+  whiteBalanceGains,
+  whiteBalancePixels,
+  whiteBalanceRgb,
+} from './color';
+import { applyLutRgb, lutPixels, makeLut, toHalf, type Lut } from './lut';
 import type { RendererBackend } from './protocol';
 import { drawText } from './text';
 import { layerMatrix, toClipSpace, type Affine } from './transform';
@@ -102,27 +113,32 @@ class Canvas2dCompositor implements Compositor {
       }
       this.ctx.globalAlpha = opacity;
       this.ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
-      // LUT first (by hand), then the adjustments (by the browser where it can).
-      const filterByBrowser = this.canvasFilters && !isNeutral(color);
+      // White balance and LUT by hand, then brightness/contrast/saturation (by the
+      // browser where it can): the order every renderer uses (render/color.ts).
+      const tone = hasToneAdjustment(color);
+      const filterByBrowser = this.canvasFilters && tone;
       if (filterByBrowser) this.ctx.filter = cssFilter(color); // reset by restore()
-      if (!lut && (isNeutral(color) || filterByBrowser)) {
+      const toneByHand = tone && !filterByBrowser ? color : null;
+      if (!lut && !hasWhiteBalance(color) && !toneByHand) {
         sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
       } else {
-        const byHand = filterByBrowser || isNeutral(color) ? null : color;
-        this.ctx.drawImage(this.processed(sample, lut, byHand), 0, 0, 1, 1);
+        const gains = hasWhiteBalance(color) ? whiteBalanceGains(color) : null;
+        this.ctx.drawImage(this.processed(sample, gains, lut, toneByHand), 0, 0, 1, 1);
       }
       this.ctx.restore();
     }
   }
 
   /**
-   * The frame with its pixels processed in JavaScript: the LUT, and the colour
-   * adjustments where the browser has no canvas filters. Done at the frame's
+   * The frame with its pixels processed in JavaScript: white balance, the LUT,
+   * and brightness/contrast/saturation where the browser has no canvas
+   * filters, in that order. Done at the frame's
    * size, but never above the output canvas (a 4K source in a 1080p export is
    * processed at 1080p).
    */
   private processed(
     sample: VideoSample,
+    gains: [number, number, number] | null,
     lut: { lut: Lut; intensity: number } | null,
     color: ColorAdjust | null,
   ): OffscreenCanvas {
@@ -139,6 +155,7 @@ class Canvas2dCompositor implements Compositor {
     const ctx = this.scratch.getContext('2d', { willReadFrequently: true })!;
     sample.draw(ctx, 0, 0, width, height);
     const pixels = ctx.getImageData(0, 0, width, height);
+    if (gains) whiteBalancePixels(pixels.data, gains);
     if (lut) lutPixels(pixels.data, lut.lut, lut.intensity);
     if (color) adjustPixels(pixels.data, color);
     ctx.putImageData(pixels, 0, 0);
@@ -150,8 +167,9 @@ const SHADER = /* wgsl */ `
 // Affine transform from the unit square (the source frame, y down) to clip space:
 // position = (m.x·u + m.z·v + t.x, m.y·u + m.w·v + t.y); t.z is the layer opacity.
 // Computed by layerMatrix() + toClipSpace() in transform.ts (shared with Canvas 2D).
-// c = (brightness, contrast, saturation, LUT intensity): render/color.ts and render/lut.ts.
-struct Quad { m: vec4f, t: vec4f, c: vec4f };
+// c = (brightness, contrast, saturation, LUT intensity); w = white-balance gains (r, g, b, unused):
+// render/color.ts and render/lut.ts.
+struct Quad { m: vec4f, t: vec4f, c: vec4f, w: vec4f };
 @group(0) @binding(0) var<uniform> quad: Quad;
 @group(0) @binding(1) var frameSampler: sampler;
 @group(0) @binding(2) var frame: texture_external;
@@ -192,7 +210,9 @@ fn graded(rgb: vec3f) -> vec3f {
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let colour = textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
-  return vec4f(adjust(graded(colour.rgb)), colour.a * quad.t.z);
+  // White balance, then the LUT, then brightness/contrast/saturation.
+  let balanced = clamp(colour.rgb * quad.w.xyz, vec3f(0), vec3f(1));
+  return vec4f(adjust(graded(balanced)), colour.a * quad.t.z);
 }
 `;
 
@@ -259,7 +279,7 @@ class WebGpuCompositor implements Compositor {
     });
     const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     const uniforms = Array.from({ length: MAX_LAYERS }, () =>
-      device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
+      device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
     );
 
     // Some drivers expose WebGPU but cannot import video frames correctly.
@@ -386,15 +406,19 @@ class WebGpuCompositor implements Compositor {
   }
 }
 
+/** What the self-test draws: red, cooled, inverted by a LUT, then made black and white. */
+const SELF_TEST_COLOR: ColorAdjust = { ...NEUTRAL_COLOR, temperature: -100, saturation: -100 };
+const SELF_TEST_LUT = makeLut(2, (r, g, b) => [1 - r, 1 - g, 1 - b]);
+
 /**
- * Draw a solid red VideoFrame through an inverting LUT (making it cyan) and
- * desaturated to black and white, then a fully transparent frame on top,
- * through the production pipeline into a 4x4 texture, and read it back. The
- * result must be cyan's grey (luma 0.715 + 0.072, about 201 of 255). That
- * proves video frames import correctly, transparency survives (text overlays
- * rely on it), and the LUT lookup and colour maths match Canvas 2D, in the
- * same order. Returns false on any error or wrong colour, so the caller falls
- * back to Canvas 2D.
+ * Draw a solid red VideoFrame through the whole colour pipeline (white
+ * balance, an inverting LUT, desaturation), then a fully transparent frame on
+ * top, into a 4x4 texture, and read it back. The result must be the grey the
+ * TypeScript reference gives (about 213 of 255; any other order gives a
+ * different value or colour). That proves video frames import correctly,
+ * transparency survives (text overlays rely on it), and the GPU's colour maths
+ * matches Canvas 2D. Returns false on any error or wrong colour, so the
+ * caller falls back to Canvas 2D.
  */
 async function selfTest(
   device: GPUDevice,
@@ -416,10 +440,7 @@ async function selfTest(
   let invert: GPUTexture | null = null;
   try {
     device.pushErrorScope('validation');
-    invert = createLutTexture(
-      device,
-      makeLut(2, (r, g, b) => [1 - r, 1 - g, 1 - b]),
-    );
+    invert = createLutTexture(device, SELF_TEST_LUT);
     const target = device.createTexture({
       size: [size, size],
       format,
@@ -433,7 +454,7 @@ async function selfTest(
         size,
         size,
         1,
-        { brightness: 0, contrast: 0, saturation: -100 },
+        SELF_TEST_COLOR,
         1,
       ),
     );
@@ -477,7 +498,8 @@ async function selfTest(
     readback.unmap();
     target.destroy();
     // Grey, so the channel order (rgba or bgra) doesn't matter.
-    return pixel.every((v) => Math.abs(v - (0.715 + 0.072) * 255) < 8);
+    const expected = selfTestExpected() * 255;
+    return pixel.every((v) => Math.abs(v - expected) < 6);
   } catch (error) {
     console.warn('WebGPU self-test failed', error);
     return false;
@@ -515,7 +537,10 @@ function createLutTexture(device: GPUDevice, lut: Lut): GPUTexture {
   return texture;
 }
 
-/** The shader's uniform: clip-space matrix, opacity, colour adjustments and LUT intensity (12 floats). */
+/**
+ * The shader's uniform (16 floats): clip-space matrix, opacity, colour
+ * adjustments, LUT intensity and white-balance gains.
+ */
 function quadUniform(
   pixels: Affine,
   width: number,
@@ -526,6 +551,7 @@ function quadUniform(
 ) {
   const m = toClipSpace(pixels, width, height);
   const c = colorParams(color);
+  const [gr, gg, gb] = whiteBalanceGains(color);
   return new Float32Array([
     m.a,
     m.b,
@@ -539,10 +565,21 @@ function quadUniform(
     c.contrast,
     c.saturation,
     lutIntensity,
+    gr,
+    gg,
+    gb,
+    0,
   ]);
 }
 
 /** Move a placement right by `dx` canvas pixels (slide transitions). */
 function shifted(m: Affine, dx: number): Affine {
   return dx === 0 ? m : { ...m, e: m.e + dx };
+}
+
+/** The grey the self-test must read back, from the reference maths every renderer follows. */
+export function selfTestExpected(): number {
+  const balanced = whiteBalanceRgb([1, 0, 0], whiteBalanceGains(SELF_TEST_COLOR));
+  const graded = applyLutRgb(balanced, SELF_TEST_LUT, 1);
+  return adjustRgb(graded, colorParams(SELF_TEST_COLOR))[0];
 }

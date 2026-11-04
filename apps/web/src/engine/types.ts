@@ -73,6 +73,10 @@ export interface ColorAdjust {
   brightness: number;
   contrast: number;
   saturation: number;
+  /** Cooler (-100) to warmer (100). */
+  temperature: number;
+  /** Greener (-100) to more magenta (100). */
+  tint: number;
 }
 
 export const COLOR_LIMIT = 100;

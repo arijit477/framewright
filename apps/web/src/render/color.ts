@@ -1,9 +1,20 @@
 import type { ColorAdjust } from '../engine/types';
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** Luma weights of the CSS `saturate()` matrix (also used to keep white's brightness). */
+const LUMA = [0.213, 0.715, 0.072] as const;
+
 /**
- * Colour adjustments, as every rendering path applies them.
+ * Colour adjustments, as every rendering path applies them, in this order:
  *
- * The maths is exactly that of the CSS filter functions `brightness()`,
+ * 1. White balance (temperature and tint): per-channel gains, scaled so white
+ *    keeps its brightness (`whiteBalanceGains`). CSS has no such filter, so
+ *    Canvas 2D does this step in JavaScript (`whiteBalancePixels`).
+ * 2. The clip's LUT, if any (render/lut.ts).
+ * 3. Brightness, contrast and saturation, below.
+ *
+ * For step 3, the maths is exactly that of the CSS filter functions `brightness()`,
  * `contrast()` and `saturate()`, applied in that order to sRGB values with a
  * clamp after each step (Filter Effects spec). So:
  * - Canvas 2D uses `ctx.filter` with `cssFilter()` (fast, done by the browser),
@@ -20,10 +31,69 @@ export interface ColorParams {
   saturation: number;
 }
 
-export const NEUTRAL_COLOR: ColorAdjust = { brightness: 0, contrast: 0, saturation: 0 };
+export const NEUTRAL_COLOR: ColorAdjust = {
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  temperature: 0,
+  tint: 0,
+};
+
+/** Whether brightness, contrast or saturation change anything (the CSS-filter part). */
+export const hasToneAdjustment = (c: ColorAdjust | undefined): boolean =>
+  !!c && (c.brightness !== 0 || c.contrast !== 0 || c.saturation !== 0);
+
+/** Whether temperature or tint change anything. */
+export const hasWhiteBalance = (c: ColorAdjust | undefined): boolean =>
+  !!c && (c.temperature !== 0 || c.tint !== 0);
 
 export const isNeutral = (c: ColorAdjust | undefined): boolean =>
-  !c || (c.brightness === 0 && c.contrast === 0 && c.saturation === 0);
+  !hasToneAdjustment(c) && !hasWhiteBalance(c);
+
+/** Whether two adjustments are the same (field by field, whatever the key order). */
+export const sameColor = (a: ColorAdjust, b: ColorAdjust): boolean =>
+  a.brightness === b.brightness &&
+  a.contrast === b.contrast &&
+  a.saturation === b.saturation &&
+  a.temperature === b.temperature &&
+  a.tint === b.tint;
+
+/** Strongest gain change at ±100 (25%), before keeping white's brightness. */
+const WHITE_BALANCE_RANGE = 0.25;
+
+/**
+ * Per-channel gains for temperature (red up and blue down when warmer) and
+ * tint (green down when more magenta), divided by the luma of white so the
+ * overall brightness stays the same.
+ */
+export function whiteBalanceGains(c: ColorAdjust): [number, number, number] {
+  const warm = (c.temperature / 100) * WHITE_BALANCE_RANGE;
+  const magenta = (c.tint / 100) * WHITE_BALANCE_RANGE;
+  const gains = [1 + warm, 1 - magenta, 1 - warm] as const;
+  // Relative to unchanged white (whose weighted sum isn't exactly 1 in floating point),
+  // so neutral settings give gains of exactly 1.
+  const luma = (r: number, g: number, b: number) => LUMA[0] * r + LUMA[1] * g + LUMA[2] * b;
+  const white = luma(...gains) / luma(1, 1, 1);
+  return [gains[0] / white, gains[1] / white, gains[2] / white];
+}
+
+/** One pixel (channels 0..1) white-balanced: the reference for every path. */
+export function whiteBalanceRgb(
+  rgb: [number, number, number],
+  gains: [number, number, number],
+): [number, number, number] {
+  return [clamp01(rgb[0] * gains[0]), clamp01(rgb[1] * gains[1]), clamp01(rgb[2] * gains[2])];
+}
+
+/** White-balance RGBA pixels in place (Canvas 2D). */
+export function whiteBalancePixels(data: Uint8ClampedArray, gains: [number, number, number]): void {
+  const [gr, gg, gb] = gains;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = data[i]! * gr; // Uint8ClampedArray rounds and clamps
+    data[i + 1] = data[i + 1]! * gg;
+    data[i + 2] = data[i + 2]! * gb;
+  }
+}
 
 /**
  * Stored values (-100..100) to filter amounts. Brightness is gentler (±50%)
@@ -39,15 +109,10 @@ export function colorParams(c: ColorAdjust): ColorParams {
 
 /** The equivalent CSS filter, for Canvas 2D's `ctx.filter`. */
 export function cssFilter(c: ColorAdjust): string {
-  if (isNeutral(c)) return 'none';
+  if (!hasToneAdjustment(c)) return 'none';
   const p = colorParams(c);
   return `brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;
 }
-
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-
-/** Luma weights of the CSS `saturate()` matrix. */
-const LUMA = [0.213, 0.715, 0.072] as const;
 
 /**
  * One pixel (channels 0..1) through the adjustments: the reference for every
@@ -75,12 +140,19 @@ export function adjustPixels(data: Uint8ClampedArray, c: ColorAdjust): void {
   }
 }
 
-/** Ready-made looks: each just sets the three values, which stay editable. */
+const look = (patch: Partial<ColorAdjust>): ColorAdjust => ({ ...NEUTRAL_COLOR, ...patch });
+
+/** Ready-made looks: each just sets the values, which stay editable. */
 export const COLOR_PRESETS: { name: string; color: ColorAdjust }[] = [
-  { name: 'Black & white', color: { brightness: 0, contrast: 10, saturation: -100 } },
-  { name: 'Vivid', color: { brightness: 0, contrast: 15, saturation: 40 } },
-  { name: 'Muted', color: { brightness: 5, contrast: -10, saturation: -40 } },
-  { name: 'Bright', color: { brightness: 20, contrast: 5, saturation: 10 } },
-  { name: 'Moody', color: { brightness: -15, contrast: 25, saturation: -20 } },
-  { name: 'High contrast', color: { brightness: 0, contrast: 45, saturation: 0 } },
+  { name: 'Black & white', color: look({ contrast: 10, saturation: -100 }) },
+  { name: 'Vivid', color: look({ contrast: 15, saturation: 40 }) },
+  { name: 'Muted', color: look({ brightness: 5, contrast: -10, saturation: -40 }) },
+  { name: 'Bright', color: look({ brightness: 20, contrast: 5, saturation: 10 }) },
+  {
+    name: 'Moody',
+    color: look({ brightness: -15, contrast: 25, saturation: -20, temperature: -20 }),
+  },
+  { name: 'High contrast', color: look({ contrast: 45 }) },
+  { name: 'Warm', color: look({ temperature: 35, saturation: 5 }) },
+  { name: 'Cool', color: look({ temperature: -35, tint: -5 }) },
 ];

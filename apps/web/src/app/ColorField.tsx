@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { COLOR_LIMIT, type Clip, type ColorAdjust } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
-import { COLOR_PRESETS, isNeutral, NEUTRAL_COLOR } from '../render/color';
+import { COLOR_PRESETS, isNeutral, NEUTRAL_COLOR, sameColor } from '../render/color';
 import { importLut, setClipColor, setClipLut, useEditor } from '../store/editor';
 import { Slider } from './TransformInspector';
 
 const COMMIT_DELAY_MS = 400;
 
-/** Brightness, contrast and saturation of a media clip, with ready-made looks. */
+/**
+ * Colour of a media clip: white balance, a LUT, brightness, contrast and
+ * saturation, with ready-made looks.
+ */
 export function ColorField({ clip }: { clip: Clip }) {
   const saved = clip.color ?? NEUTRAL_COLOR;
   const [draft, setDraft] = useState<ColorAdjust>(saved);
@@ -55,6 +58,9 @@ export function ColorField({ clip }: { clip: Clip }) {
   return (
     <section className="inspector-section" aria-label="Color">
       <h2>Color</h2>
+      {/* In processing order: white balance, then the LUT, then tone. */}
+      {slider('Temperature', 'temperature')}
+      {slider('Tint', 'tint')}
       <LutField key={`${clip.id}:${clip.lut?.lutId}:${clip.lut?.intensityPercent}`} clip={clip} />
       {slider('Brightness', 'brightness')}
       {slider('Contrast', 'contrast')}
@@ -65,7 +71,7 @@ export function ColorField({ clip }: { clip: Clip }) {
           {COLOR_PRESETS.map((preset) => (
             <button
               key={preset.name}
-              aria-pressed={JSON.stringify(preset.color) === JSON.stringify(draft)}
+              aria-pressed={sameColor(preset.color, draft)}
               onClick={() => change(preset.color, { now: true })}
             >
               {preset.name}

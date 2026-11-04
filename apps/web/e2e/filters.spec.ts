@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { adjustRgb, colorParams } from '../src/render/color';
+import {
+  adjustRgb,
+  colorParams,
+  NEUTRAL_COLOR,
+  whiteBalanceGains,
+  whiteBalanceRgb,
+} from '../src/render/color';
 import { EditorPage } from './editor-page';
 import { averageRgb, FIXTURES, frameRgb } from './media';
 
@@ -35,7 +41,7 @@ test.describe('filters', () => {
 
   test('adjusted exports match the reference colour maths', async () => {
     const before = await exportBars();
-    const color = { brightness: 30, contrast: 40, saturation: -50 };
+    const color = { ...NEUTRAL_COLOR, brightness: 30, contrast: 40, saturation: -50 };
     await editor.setSlider('Brightness', color.brightness);
     await editor.setSlider('Contrast', color.contrast);
     await editor.setSlider('Saturation', color.saturation);
@@ -54,6 +60,26 @@ test.describe('filters', () => {
     // And the change is real: the bars got less colourful.
     const spread = ([r, g, b]: Rgb) => Math.max(r, g, b) - Math.min(r, g, b);
     expect(spread(after[0]!)).toBeLessThan(spread(before[0]!) - 60);
+  });
+
+  test('temperature and tint white-balance the export like the reference', async () => {
+    const before = await exportBars();
+    const color = { ...NEUTRAL_COLOR, temperature: 60, tint: -40 };
+    await editor.setSlider('Temperature', color.temperature);
+    await editor.setSlider('Tint', color.tint);
+    const after = await exportBars();
+    const gains = whiteBalanceGains(color);
+    before.forEach((rgb, bar) => {
+      const expected = whiteBalanceRgb(rgb.map((v) => v / 255) as Rgb, gains).map((v) => v * 255);
+      after[bar]!.forEach((value, channel) => {
+        expect(
+          Math.abs(value - expected[channel]!),
+          `bar ${bar}, channel ${channel}: got ${after[bar]}, expected ${expected}`,
+        ).toBeLessThan(TOLERANCE);
+      });
+    });
+    // Warmer: the blue bar (index 3) lost blue.
+    expect(after[3]![2]).toBeLessThan(before[3]![2] - 20);
   });
 
   test('a look applies in one click, undoes, and is saved', async () => {
