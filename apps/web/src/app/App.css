@@ -589,7 +589,7 @@ button.danger-quiet {
   color: var(--muted);
 }
 
-.field output {
+.field .value {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   margin-left: 6px;
@@ -691,4 +691,24 @@ button.toggle {
   .workspace {
     position: relative;
   }
+}
+
+.pip-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pip-grid button {
+  padding: 5px 6px;
+  font-size: 12px;
+}
+
+.inspector-tip {
+  margin: 0;
+  font-size: 12px;
+}
+
+.preview-frame canvas.draggable {
+  cursor: move;
 }

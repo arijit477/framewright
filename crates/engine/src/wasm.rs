@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::text::{TextContent, TextStyle};
 use crate::timeline::{Edge, EditError, Micros, Timeline, TrackKind};
+use crate::transform::Transform;
 
 fn to_micros(value: f64) -> Micros {
     value.round() as Micros
@@ -164,6 +165,15 @@ impl Engine {
     pub fn set_clip_text(&mut self, clip_id: u32, content: JsValue) -> Result<(), JsError> {
         let content: TextContent = serde_wasm_bindgen::from_value(content)?;
         self.timeline.set_clip_text(clip_id, content).map_err(err)
+    }
+
+    /// Set where a media clip appears; `transform` is `{ x, y, scalePercent, rotationDeg, opacityPercent }`.
+    #[wasm_bindgen(js_name = setClipTransform)]
+    pub fn set_clip_transform(&mut self, clip_id: u32, transform: JsValue) -> Result<(), JsError> {
+        let transform: Transform = serde_wasm_bindgen::from_value(transform)?;
+        self.timeline
+            .set_clip_transform(clip_id, transform)
+            .map_err(err)
     }
 
     /// The default style for new titles, so the UI doesn't duplicate it.

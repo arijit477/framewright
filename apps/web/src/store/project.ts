@@ -16,6 +16,7 @@ import {
   createBackupStream,
   readBackup,
 } from '../project/backup';
+import { flushPendingEdits } from '../lib/pending-edits';
 import { SaveScheduler, type SaveState } from '../project/save-scheduler';
 import { ProjectStorage, storageEstimate } from '../project/storage';
 import {
@@ -218,6 +219,7 @@ export async function saveProject(): Promise<void> {
     notify('info', "This browser can't save projects.");
     return;
   }
+  flushPendingEdits();
   scheduler.markDirty();
   await scheduler.flush();
   if (get().saveState === 'saved') notify('info', 'Project saved.');
@@ -250,7 +252,8 @@ export async function relinkMissing(files: readonly File[]): Promise<void> {
 export async function downloadBackup(projectId: string): Promise<void> {
   if (!storage || get().busy) return;
   if (get().current?.id === projectId) {
-    // Make sure it's on disk, even if it was never edited.
+    // Make sure it's on disk (with any pending edit), even if it was never edited.
+    flushPendingEdits();
     scheduler.markDirty();
     await scheduler.flush();
   }
@@ -444,9 +447,12 @@ async function acquireLock(projectId: string): Promise<(() => void) | null> {
 function installUnloadGuards() {
   // Save when the tab is hidden: the most reliable moment before it may be killed.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') void scheduler.flush();
+    if (document.visibilityState !== 'hidden') return;
+    flushPendingEdits();
+    void scheduler.flush();
   });
   window.addEventListener('beforeunload', (event) => {
+    flushPendingEdits();
     if (!storage || !scheduler.hasUnsavedChanges) return;
     void scheduler.flush();
     event.preventDefault(); // ask the user to stay while we save

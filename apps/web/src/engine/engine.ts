@@ -1,5 +1,12 @@
 import init, { Engine } from '@framewright/engine';
-import type { AudioSegment, Layer, TextContent, TextStyle, TimelineSnapshot } from './types';
+import type {
+  AudioSegment,
+  Layer,
+  TextContent,
+  TextStyle,
+  TimelineSnapshot,
+  Transform,
+} from './types';
 
 /**
  * Typed facade over the WASM engine. UI code talks to this, never to the
@@ -71,6 +78,10 @@ export class TimelineEngine {
 
   setClipText(clipId: number, content: TextContent): void {
     this.inner.setClipText(clipId, content);
+  }
+
+  setClipTransform(clipId: number, transform: Transform): void {
+    this.inner.setClipTransform(clipId, transform);
   }
 
   /** The engine's default title style (single source of truth). */

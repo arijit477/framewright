@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::text::{TextContent, TextError};
+use crate::transform::{Transform, TransformError};
 
 /// Time in microseconds.
 pub type Micros = i64;
@@ -52,6 +53,10 @@ pub struct Clip {
     /// Set for text clips, which show this text instead of media.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<TextContent>,
+    /// Where a media clip appears in the frame. Omitted from saved projects
+    /// when unchanged, so old projects and plain clips stay compact.
+    #[serde(default, skip_serializing_if = "Transform::is_identity")]
+    pub transform: Transform,
 }
 
 pub const MAX_VOLUME_PERCENT: u16 = 200;
@@ -121,6 +126,8 @@ pub struct Layer {
     /// Set for text clips: what to draw instead of a video frame.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<TextContent>,
+    /// Placement of a media clip (identity for text, which uses its style).
+    pub transform: Transform,
 }
 
 /// One audible stretch of a clip, as the audio mixer needs it.
@@ -164,6 +171,10 @@ pub enum EditError {
     NotText(ClipId),
     #[error("text can only go on a video track")]
     TextNeedsVideoTrack,
+    #[error("invalid transform: {0}")]
+    InvalidTransform(#[from] TransformError),
+    #[error("text clips are positioned with their text style, not a transform")]
+    TransformOnText,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +316,22 @@ impl Timeline {
         Ok(())
     }
 
+    /// Set where a media clip appears in the frame.
+    pub fn set_clip_transform(
+        &mut self,
+        clip_id: ClipId,
+        transform: Transform,
+    ) -> Result<(), EditError> {
+        transform.validate()?;
+        let (t, c) = self.locate(clip_id)?;
+        let clip = &mut self.tracks[t].clips[c];
+        if clip.text.is_some() {
+            return Err(EditError::TransformOnText);
+        }
+        clip.transform = transform;
+        Ok(())
+    }
+
     /// Shared by media and text clips: overlap check, id allocation, sorted insert.
     #[allow(clippy::too_many_arguments)]
     fn insert_clip(
@@ -333,6 +360,7 @@ impl Timeline {
             volume_percent: default_volume(),
             muted: false,
             text,
+            transform: Transform::default(),
         });
         Ok(id)
     }
@@ -459,6 +487,7 @@ impl Timeline {
                     clip_time: at - clip.start,
                     clip_duration: clip.duration,
                     text: clip.text.clone(),
+                    transform: clip.transform,
                 })
             })
             .collect()
@@ -838,6 +867,54 @@ mod tests {
         let track = tl.add_track(TrackKind::Video);
         tl.add_text_clip(track, 0, S, title("Saved")).unwrap();
         assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
+    }
+
+    #[test]
+    fn transforms_are_resolved_and_kept_on_split() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        let pip = Transform {
+            x: 785,
+            y: 785,
+            scale_percent: 35,
+            rotation_deg: 0,
+            opacity_percent: 100,
+        };
+        tl.set_clip_transform(clip, pip).unwrap();
+        assert_eq!(tl.resolve(3 * S)[0].transform, pip);
+        tl.split_clip(clip, 4 * S).unwrap();
+        assert!(tl.tracks[0].clips.iter().all(|c| c.transform == pip));
+    }
+
+    #[test]
+    fn transforms_are_validated_and_not_for_text() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        let bad = Transform {
+            scale_percent: 0,
+            ..Transform::default()
+        };
+        assert_eq!(
+            tl.set_clip_transform(clip, bad),
+            Err(EditError::InvalidTransform(TransformError::Scale(0)))
+        );
+        let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
+        assert_eq!(
+            tl.set_clip_transform(text, Transform::default()),
+            Err(EditError::TransformOnText)
+        );
+    }
+
+    #[test]
+    fn unchanged_transforms_are_not_saved() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        assert!(!tl.to_json().contains("transform"), "identity is omitted");
+        let moved = Transform {
+            x: 100,
+            ..Transform::default()
+        };
+        tl.set_clip_transform(clip, moved).unwrap();
+        let json = tl.to_json();
+        assert!(json.contains("transform"));
+        assert_eq!(Timeline::from_json(&json).unwrap(), tl);
     }
 
     #[test]

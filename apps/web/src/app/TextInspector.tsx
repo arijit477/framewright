@@ -8,6 +8,8 @@ import {
   type TextContent,
   type TextStyle,
 } from '../engine/types';
+import { Debouncer } from '../lib/debouncer';
+import { registerPendingEdits } from '../lib/pending-edits';
 import { selectedClip, updateText, useEditor } from '../store/editor';
 
 /** Typing and dragging sliders commit after this pause, so undo steps stay meaningful. */
@@ -52,7 +54,14 @@ function Inspector({ clip, saved }: { clip: Clip; saved: TextContent }) {
 
   // Pending commits live outside React state; each captures its exact value.
   const [debouncer] = useState(() => new Debouncer(COMMIT_DELAY_MS));
-  useEffect(() => () => debouncer.flush(), [debouncer]); // flush when the panel closes
+  // Flush when the panel closes, and whenever export/save needs the latest state.
+  useEffect(() => {
+    const unregister = registerPendingEdits(() => debouncer.flush());
+    return () => {
+      unregister();
+      debouncer.flush();
+    };
+  }, [debouncer]);
 
   const commit = (content: TextContent) => {
     if (content.text.trim()) updateText(clip.id, content); // no-op edits are ignored
@@ -120,9 +129,14 @@ function Inspector({ clip, saved }: { clip: Clip; saved: TextContent }) {
       </div>
 
       <label className="field">
-        Size <output>{s.size}</output>
+        Size{' '}
+        <span className="value" aria-hidden="true">
+          {s.size}
+        </span>
         <input
           type="range"
+          aria-label="Size"
+          aria-valuetext={`${s.size} pixels`}
           min={TEXT_LIMITS.minSize}
           max={160}
           value={Math.min(s.size, 160)}
@@ -265,30 +279,4 @@ function Toggle(props: {
       {props.children}
     </button>
   );
-}
-
-/** Runs the latest scheduled action after a pause; `flush` runs it now. */
-class Debouncer {
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private pending: (() => void) | null = null;
-
-  constructor(private readonly delayMs: number) {}
-
-  schedule(action: () => void): void {
-    this.pending = action;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.flush(), this.delayMs);
-  }
-
-  flush(): void {
-    clearTimeout(this.timer);
-    const action = this.pending;
-    this.pending = null;
-    action?.();
-  }
-
-  cancel(): void {
-    clearTimeout(this.timer);
-    this.pending = null;
-  }
 }

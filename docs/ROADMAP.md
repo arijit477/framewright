@@ -44,8 +44,10 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 
 - [x] Text layers: font, size, colour, box, bold/italic, alignment, position, fade/slide/pop in and out
 - [ ] Custom fonts (bundled web fonts available to the export worker)
-- [ ] Drag text directly on the preview to position it
-- [ ] Transform: position, scale, rotation, opacity, with keyframes
+- [x] Drag text directly on the preview to position it
+- [x] Transform: position, scale, rotation, opacity; picture-in-picture presets; drag on the preview
+- [ ] Keyframes for transforms (animate position, scale, rotation, opacity)
+- [ ] Resize and rotate handles on the preview
 - [ ] Transitions: crossfade, slide, wipe (WGSL)
 - [ ] Filters: brightness/contrast/saturation, LUTs; plugin API for effects
 - [ ] Speed control (0.25×–4×) with audio pitch preservation

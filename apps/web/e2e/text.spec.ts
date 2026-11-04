@@ -92,4 +92,15 @@ test.describe('text overlays', () => {
     await field.blur();
     expect((await editor.tracks())[0]).toContain('text “Keep me”');
   });
+
+  test('Ctrl+S while typing saves the latest text', async () => {
+    await editor.seekTo(1);
+    await editor.press('t');
+    const field = editor.page.getByLabel('Text content');
+    await field.fill('Saved without leaving the box');
+    await field.press('Control+s'); // still focused: the pending edit must be flushed
+    await expect(editor.page.getByRole('status')).toHaveText('Project saved.');
+    await editor.reload();
+    expect((await editor.tracks())[0]).toContain('text “Saved without leaving the box”');
+  });
 });

@@ -13,6 +13,7 @@ import {
   sanitizeSettings,
   type ExportSettings,
 } from '../export/settings';
+import { flushPendingEdits } from '../lib/pending-edits';
 import { pause, projectForExport } from './editor';
 
 const SETTINGS_KEY = 'framewright.exportSettings';
@@ -67,6 +68,7 @@ export function updateSettings(patch: Partial<ExportSettings>) {
  */
 export async function startExport() {
   if (job || get().phase === 'running') return;
+  flushPendingEdits(); // include a change made a moment ago (e.g. a slider still focused)
   pause();
   const { settings } = get();
   const { projectJson, assets, baseName } = projectForExport();

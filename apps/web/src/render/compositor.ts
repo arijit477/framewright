@@ -1,7 +1,8 @@
 import type { VideoSample } from 'mediabunny';
-import type { TextContent } from '../engine/types';
+import { IDENTITY_TRANSFORM, type TextContent, type Transform } from '../engine/types';
 import type { RendererBackend } from './protocol';
 import { drawText } from './text';
+import { layerMatrix, toClipSpace, type Affine } from './transform';
 
 /**
  * Draws a stack of frames (bottom first) into the output canvas.
@@ -9,32 +10,12 @@ import { drawText } from './text';
  */
 /** One layer to draw, bottom first: a decoded video frame or a text overlay. */
 export type DrawItem =
-  | { kind: 'video'; sample: VideoSample }
+  | { kind: 'video'; sample: VideoSample; transform: Transform }
   | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
 
 export interface Compositor {
   readonly backend: RendererBackend;
   draw(items: DrawItem[]): void;
-}
-
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/** Fit a source into the canvas, keeping its aspect ratio (letterbox). */
-export function containRect(
-  srcWidth: number,
-  srcHeight: number,
-  dstWidth: number,
-  dstHeight: number,
-): Rect {
-  const scale = Math.min(dstWidth / srcWidth, dstHeight / srcHeight);
-  const width = srcWidth * scale;
-  const height = srcHeight * scale;
-  return { x: (dstWidth - width) / 2, y: (dstHeight - height) / 2, width, height };
 }
 
 export interface CompositorOptions {
@@ -80,15 +61,23 @@ class Canvas2dCompositor implements Compositor {
         drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
         continue;
       }
-      const frame = item.sample;
-      const r = containRect(frame.displayWidth, frame.displayHeight, width, height);
-      frame.draw(this.ctx, r.x, r.y, r.width, r.height);
+      const { sample, transform } = item;
+      if (transform.opacityPercent === 0) continue;
+      const m = layerMatrix(sample.displayWidth, sample.displayHeight, width, height, transform);
+      this.ctx.save();
+      this.ctx.globalAlpha = transform.opacityPercent / 100;
+      this.ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+      sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
+      this.ctx.restore();
     }
   }
 }
 
 const SHADER = /* wgsl */ `
-struct Quad { rect: vec4f }; // x, y, width, height in clip space (y up)
+// Affine transform from the unit square (the source frame, y down) to clip space:
+// position = (m.x·u + m.z·v + t.x, m.y·u + m.w·v + t.y); t.z is the layer opacity.
+// Computed by layerMatrix() + toClipSpace() in transform.ts (shared with Canvas 2D).
+struct Quad { m: vec4f, t: vec4f };
 @group(0) @binding(0) var<uniform> quad: Quad;
 @group(0) @binding(1) var frameSampler: sampler;
 @group(0) @binding(2) var frame: texture_external;
@@ -99,13 +88,19 @@ struct VsOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   let corners = array(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(1, 1));
   let c = corners[i];
   var out: VsOut;
-  out.position = vec4f(quad.rect.x + c.x * quad.rect.z, quad.rect.y - c.y * quad.rect.w, 0, 1);
+  out.position = vec4f(
+    quad.m.x * c.x + quad.m.z * c.y + quad.t.x,
+    quad.m.y * c.x + quad.m.w * c.y + quad.t.y,
+    0,
+    1,
+  );
   out.uv = c;
   return out;
 }
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
-  return textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
+  let colour = textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
+  return vec4f(colour.rgb, colour.a * quad.t.z);
 }
 `;
 
@@ -156,7 +151,7 @@ class WebGpuCompositor implements Compositor {
     });
     const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     const uniforms = Array.from({ length: MAX_LAYERS }, () =>
-      device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
+      device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
     );
 
     // Some drivers expose WebGPU but cannot import video frames correctly.
@@ -196,19 +191,24 @@ class WebGpuCompositor implements Compositor {
       const videoFrame = item.kind === 'video' ? item.sample.toVideoFrame() : this.textFrame(item);
       if (!videoFrame) return;
       videoFrames.push(videoFrame);
-      const r =
+      // Text frames are full-canvas; video frames use the clip's transform.
+      const transform = item.kind === 'video' ? item.transform : IDENTITY_TRANSFORM;
+      const matrix =
         item.kind === 'video'
-          ? containRect(item.sample.displayWidth, item.sample.displayHeight, width, height)
-          : { x: 0, y: 0, width, height }; // text frames cover the whole canvas
-      // Pixels -> clip space (-1..1, y up).
-      const rect = new Float32Array([
-        (r.x / width) * 2 - 1,
-        1 - (r.y / height) * 2,
-        (r.width / width) * 2,
-        (r.height / height) * 2,
-      ]);
+          ? layerMatrix(
+              item.sample.displayWidth,
+              item.sample.displayHeight,
+              width,
+              height,
+              transform,
+            )
+          : layerMatrix(width, height, width, height, transform);
       const uniform = this.uniforms[i]!;
-      this.device.queue.writeBuffer(uniform, 0, rect);
+      this.device.queue.writeBuffer(
+        uniform,
+        0,
+        quadUniform(matrix, width, height, transform.opacityPercent / 100),
+      );
 
       const bindGroup = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(0),
@@ -277,7 +277,11 @@ async function selfTest(
       format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
-    device.queue.writeBuffer(uniform, 0, new Float32Array([-1, 1, 2, 2]));
+    device.queue.writeBuffer(
+      uniform,
+      0,
+      quadUniform(layerMatrix(size, size, size, size, IDENTITY_TRANSFORM), size, size, 1),
+    );
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [
@@ -324,4 +328,10 @@ async function selfTest(
     frame.close();
     transparent.close();
   }
+}
+
+/** The shader's uniform: the clip-space matrix and the layer opacity (8 floats). */
+function quadUniform(pixels: Affine, width: number, height: number, opacity: number) {
+  const m = toClipSpace(pixels, width, height);
+  return new Float32Array([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0]);
 }
