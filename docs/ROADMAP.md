@@ -63,7 +63,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Multi-select (Ctrl/⌘/Shift-click, Ctrl/⌘+A), group move and delete, copy/cut/paste
 - [x] Selection box (drag on empty track space)
 - [x] Duplicate (Ctrl/⌘+D), inserting when ripple editing is on
-- [ ] Editing several clips at once, keyboard selection of clips
+- [x] Editing several clips at once (speed, volume, mute, colour), with mixed values shown
+- [ ] Keyboard selection of clips; transforms for several clips
 - [ ] Proxy media for 4K sources
 
 ## Phase 3: Smart features (v0.3.0)

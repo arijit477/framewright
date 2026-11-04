@@ -3,7 +3,6 @@ import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { roundTransform } from '../lib/keyframes';
 import { registerPendingEdits } from '../lib/pending-edits';
-import { ColorField } from './ColorField';
 import { KeyframeField } from './KeyframeField';
 import { TransitionField } from './TransitionField';
 import { clipTransformAt, resetTransform, setClipTransform, useEditor } from '../store/editor';
@@ -148,8 +147,6 @@ export function TransformInspector({ clip }: { clip: Clip }) {
         </button>
         <p className="muted inspector-tip">Tip: drag the clip in the preview to move it.</p>
       </section>
-
-      <ColorField clip={clip} />
     </>
   );
 }
@@ -162,23 +159,25 @@ export function Slider(props: {
   max: number;
   step?: number;
   disabled?: boolean;
+  /** The selected clips differ: show "Mixed" (the thumb sits at the main clip's value). */
+  mixed?: boolean;
   onChange: (value: number) => void;
   onCommit: () => void;
 }) {
+  const readout = props.mixed ? 'Mixed' : `${format(props.value)}${props.unit}`;
   return (
     <label className="field">
       <span>
         {props.label}{' '}
         {/* A plain readout: the slider itself announces the value (aria-valuetext). */}
         <span className="value" aria-hidden="true">
-          {format(props.value)}
-          {props.unit}
+          {readout}
         </span>
       </span>
       <input
         type="range"
         aria-label={props.label}
-        aria-valuetext={`${format(props.value)}${props.unit}`}
+        aria-valuetext={readout}
         min={props.min}
         max={props.max}
         step={props.step ?? 1}

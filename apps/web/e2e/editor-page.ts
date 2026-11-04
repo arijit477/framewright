@@ -50,10 +50,18 @@ export class EditorPage {
    * is already gone, so later imports would return before they finished.)
    */
   async importFixtures(...names: string[]) {
+    const tracks = this.page.getByRole('list', { name: 'Timeline tracks' });
+    // Count clips per name before, so importing a file that's already on the
+    // timeline waits for the new clip, not the old one.
+    const count = async (name: string) =>
+      ((await tracks.textContent()) ?? '').split(`${name} from`).length - 1;
+    const expected = new Map<string, number>();
+    for (const name of names) expected.set(name, (expected.get(name) ?? (await count(name))) + 1);
     // By label: the page has other file inputs (backups, LUTs, relinking).
     await this.page.getByLabel('Media files to import').setInputFiles(names.map(fixture));
-    const tracks = this.page.getByRole('list', { name: 'Timeline tracks' });
-    for (const name of names) await expect(tracks).toContainText(name, { timeout: 15_000 });
+    for (const [name, n] of expected) {
+      await expect.poll(() => count(name), { timeout: 15_000 }).toBeGreaterThanOrEqual(n);
+    }
   }
 
   /** Playhead and total duration in seconds, read from the timecode display. */

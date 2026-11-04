@@ -273,6 +273,9 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
 - **UI:** dragging a selected clip moves the group (previewed live). Delete, cut, copy, paste
   and duplicate (Ctrl/⌘+D: right after the selection, inserting with `insert_space` when ripple is
   on) work on the selection; pasted and duplicated clips are selected.
+- **Editing several clips:** the clip panel edits the selection's shared settings (speed, volume,
+  mute, colour). Each change patches only that setting on every clip in one undo step; values that
+  differ read "Mixed".
 
 ## Ripple editing
 
