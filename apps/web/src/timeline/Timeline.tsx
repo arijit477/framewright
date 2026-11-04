@@ -41,6 +41,8 @@ const COLORS = {
   clip: '#4f46e5',
   clipSelected: '#818cf8',
   audioClip: '#0f766e',
+  textClip: '#9a3412',
+  textClipSelected: '#ea580c',
   missingClip: '#4a1d2a',
   missingClipSelected: '#7f1d3a',
   audioClipSelected: '#14b8a6',
@@ -360,17 +362,21 @@ function drawClip(
   const selected = clip.id === selectedClipId;
   const isAudio = kind === 'audio';
   const missing = assets[clip.assetId]?.missing ?? false;
-  ctx.fillStyle = missing
+  ctx.fillStyle = clip.text
     ? selected
-      ? COLORS.missingClipSelected
-      : COLORS.missingClip
-    : isAudio
+      ? COLORS.textClipSelected
+      : COLORS.textClip
+    : missing
       ? selected
-        ? COLORS.audioClipSelected
-        : COLORS.audioClip
-      : selected
-        ? COLORS.clipSelected
-        : COLORS.clip;
+        ? COLORS.missingClipSelected
+        : COLORS.missingClip
+      : isAudio
+        ? selected
+          ? COLORS.audioClipSelected
+          : COLORS.audioClip
+        : selected
+          ? COLORS.clipSelected
+          : COLORS.clip;
   roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
   ctx.fill();
   // Source time follows the clip while it is being dragged.
@@ -421,17 +427,29 @@ function drawClip(
       : clip.volumePercent !== 100
         ? `  ·  ${clip.volumePercent}%`
         : '';
-  // Pin the label to the visible part of the clip, so it stays readable when scrolled.
-  ctx.fillText(
-    `${assets[clip.assetId]?.name ?? 'Clip'}${status}`,
-    Math.max(left, 0) + 10,
-    top + 15,
-  );
-  ctx.fillStyle = 'rgba(238,240,255,0.7)';
+  // Duration on the right (if there's room), then the label in the space left of it.
+  const durationText = formatTimecode(end - start);
   ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText(formatTimecode(end - start), right - 10, top + 15);
-  ctx.textAlign = 'left';
+  const durationWidth = ctx.measureText(durationText).width;
+  const labelLeft = Math.max(left, 0) + 10; // pinned to the visible part when scrolled
+  const showDuration = right - left > durationWidth + 60;
+  const labelRight = showDuration ? right - 10 - durationWidth - 8 : right - 8;
+  if (showDuration) {
+    ctx.fillStyle = 'rgba(238,240,255,0.7)';
+    ctx.textAlign = 'right';
+    ctx.fillText(durationText, right - 10, top + 15);
+    ctx.textAlign = 'left';
+  }
+  if (labelRight > labelLeft) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(labelLeft, top, labelRight - labelLeft, TRACK_HEIGHT);
+    ctx.clip(); // never run into the duration
+    ctx.fillStyle = COLORS.clipText;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText(`${clipLabel(clip, assets[clip.assetId]?.name)}${status}`, labelLeft, top + 15);
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -606,4 +624,10 @@ function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, are
     ctx.stroke();
     ctx.lineWidth = 1;
   }
+}
+
+/** Text clips are labelled with their (first line of) text; media clips with the file name. */
+function clipLabel(clip: Clip, assetName: string | undefined): string {
+  if (clip.text) return `T  ${clip.text.text.split('\n')[0]}`;
+  return assetName ?? 'Clip';
 }

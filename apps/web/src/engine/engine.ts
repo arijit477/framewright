@@ -1,5 +1,5 @@
 import init, { Engine } from '@framewright/engine';
-import type { AudioSegment, Layer, TimelineSnapshot } from './types';
+import type { AudioSegment, Layer, TextContent, TextStyle, TimelineSnapshot } from './types';
 
 /**
  * Typed facade over the WASM engine. UI code talks to this, never to the
@@ -63,6 +63,19 @@ export class TimelineEngine {
 
   splitClip(clipId: number, at: number): number {
     return this.inner.splitClip(clipId, at);
+  }
+
+  addTextClip(trackId: number, start: number, duration: number, content: TextContent): number {
+    return this.inner.addTextClip(trackId, start, duration, content);
+  }
+
+  setClipText(clipId: number, content: TextContent): void {
+    this.inner.setClipText(clipId, content);
+  }
+
+  /** The engine's default title style (single source of truth). */
+  defaultTextStyle(): TextStyle {
+    return Engine.defaultTextStyle() as TextStyle;
   }
 
   setClipVolume(clipId: number, percent: number): void {

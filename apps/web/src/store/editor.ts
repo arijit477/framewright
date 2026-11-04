@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { AudioOutput } from '../audio/client';
 import { TimelineEngine } from '../engine/engine';
-import { clipEnd, type Clip, type TimelineSnapshot, type TrackKind } from '../engine/types';
+import {
+  clipEnd,
+  type Clip,
+  type TextContent,
+  type TimelineSnapshot,
+  type TrackKind,
+} from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
@@ -141,6 +147,8 @@ export function edit(operation: (engine: TimelineEngine) => void): boolean {
     notify('error', error instanceof Error ? error.message : String(error));
     return false;
   }
+  // Nothing actually changed (e.g. text committed unchanged): no undo step, no autosave.
+  if (e.save() === before) return true;
   undoStack.push(before);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack.length = 0;
@@ -155,8 +163,8 @@ export function undo() {
   if (previous === undefined) return;
   redoStack.push(e.save());
   e.load(previous);
-  set({ selectedClipId: null });
   refresh();
+  keepSelectionIfPresent();
   emit({ type: 'changed' });
 }
 
@@ -167,7 +175,19 @@ export function redo() {
   undoStack.push(e.save());
   e.load(next);
   refresh();
+  keepSelectionIfPresent();
   emit({ type: 'changed' });
+}
+
+/**
+ * After undo/redo, keep the selected clip selected if it still exists, so an
+ * open inspector stays on the clip being edited; otherwise clear it.
+ */
+function keepSelectionIfPresent() {
+  const { selectedClipId, timeline } = get();
+  if (selectedClipId === null) return;
+  const exists = timeline.tracks.some((t) => t.clips.some((c) => c.id === selectedClipId));
+  if (!exists) set({ selectedClipId: null });
 }
 
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -339,8 +359,10 @@ export function projectForExport() {
     const file = assetFiles.get(id);
     return file ? [{ id, file }] : [];
   });
-  const firstClip = get().timeline.tracks.flatMap((t) => t.clips)[0];
-  const baseName = (firstClip && get().assets[firstClip.assetId]?.name) ?? 'framewright-export';
+  const firstMedia = get()
+    .timeline.tracks.flatMap((t) => t.clips)
+    .find((c) => get().assets[c.assetId]);
+  const baseName = (firstMedia && get().assets[firstMedia.assetId]?.name) ?? 'framewright-export';
   return { projectJson: e.save(), assets, baseName, durationUs: e.duration(), missing };
 }
 
@@ -485,6 +507,30 @@ export function moveClip(
     e.moveClip(clipId, start, trackId);
     e.pruneEmptyTracks();
   });
+}
+
+/** Default length of a new title. */
+const TEXT_DURATION_US = 3_000_000;
+
+/**
+ * Add a title at the playhead on a new top video track, so it overlays
+ * whatever is underneath, and select it for editing. One undo step.
+ */
+export function addText(text = 'Your text'): void {
+  let created: number | null = null;
+  const added = edit((e) => {
+    const track = e.addTrack('video');
+    created = e.addTextClip(track, get().playhead, TEXT_DURATION_US, {
+      text,
+      style: e.defaultTextStyle(),
+    });
+  });
+  if (added && created !== null) selectClip(created);
+}
+
+/** Replace a text clip's content and style (validated by the engine). */
+export function updateText(clipId: number, content: TextContent): boolean {
+  return edit((e) => e.setClipText(clipId, content));
 }
 
 export function setClipVolume(clipId: number, percent: number) {

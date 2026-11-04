@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  addText,
   deleteSelected,
   importFiles,
   selectedClip,
@@ -25,6 +26,7 @@ import { ExportDialog } from './ExportDialog';
 import { MissingMediaBanner } from './MissingMedia';
 import { ProjectsDialog, ProjectTitle } from './ProjectsDialog';
 import { Preview } from './Preview';
+import { TextInspector } from './TextInspector';
 import { Toolbar } from './Toolbar';
 
 export function App() {
@@ -45,7 +47,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return;
+      // Never treat typing in a field as shortcuts (Backspace would delete a clip).
+      if (isEditable(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       if (mod && event.key.toLowerCase() === 's') {
         event.preventDefault(); // not the browser's "save page"
@@ -79,6 +82,10 @@ export function App() {
           if (clip) toggleMute(clip.id);
           break;
         }
+        case 't':
+        case 'T':
+          addText();
+          break;
         case 'Delete':
         case 'Backspace':
           deleteSelected();
@@ -133,7 +140,10 @@ export function App() {
       </div>
       <ExportDialog />
       <ProjectsDialog />
-      <Preview />
+      <div className="workspace">
+        <Preview />
+        <TextInspector />
+      </div>
       {ready && <Toolbar />}
       <Timeline />
       {message && (
@@ -156,5 +166,15 @@ function ExportButton() {
         ? `Exporting ${Math.floor((progress.framesDone / progress.totalFrames) * 100)}%`
         : 'Export'}
     </button>
+  );
+}
+
+/** True for anything the user types into: inputs, text areas, selects, contenteditable. */
+function isEditable(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
   );
 }

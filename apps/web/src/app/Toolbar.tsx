@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { formatTimecode } from '../lib/time';
 import { ClipAudio, LevelMeter } from './ClipAudio';
 import {
+  addText,
   deleteSelected,
   importFiles,
   redo,
@@ -15,6 +16,8 @@ import {
 export function Toolbar() {
   const fileInput = useRef<HTMLInputElement>(null);
   const playing = useEditor((s) => s.playing);
+  // Titles need something to sit on (or at least a project with media to time them against).
+  const hasMedia = useEditor((s) => s.duration > 0);
   const playhead = useEditor((s) => s.playhead);
   const duration = useEditor((s) => s.duration);
   const hasSelection = useEditor((s) => s.selectedClipId !== null);
@@ -27,6 +30,9 @@ export function Toolbar() {
       <div className="group">
         <button className="primary" onClick={() => fileInput.current?.click()}>
           Import
+        </button>
+        <button onClick={() => addText()} disabled={!hasMedia} title="Add text (T)">
+          Text
         </button>
         <input
           ref={fileInput}

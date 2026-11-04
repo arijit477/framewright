@@ -5,9 +5,10 @@
  * request is processed; older ones are dropped. That keeps scrubbing responsive
  * and lets playback skip frames instead of falling behind.
  */
-import { VideoSampleSink, type InputVideoTrack, type VideoSample } from 'mediabunny';
+import { VideoSampleSink, type InputVideoTrack } from 'mediabunny';
 import type { Layer } from '../engine/types';
 import { openAsset, toMicros } from '../media/asset';
+import { drawItems } from './compose';
 import { createCompositor, type Compositor } from './compositor';
 import { FrameReader } from './frame-reader';
 import { ReaderPool } from './reader-pool';
@@ -101,12 +102,7 @@ async function drain() {
       const { requestId, layers } = pending;
       pending = null;
       const started = performance.now();
-      const frames = await Promise.all(
-        layers.map((layer) =>
-          readers.get(layer.assetId, layer.trackIndex)?.frameAt(layer.sourceTime / 1_000_000),
-        ),
-      );
-      compositor.draw(frames.filter((f): f is VideoSample => f != null));
+      compositor.draw(await drawItems(layers, readers));
       send({ type: 'rendered', requestId, ms: performance.now() - started });
     }
   } catch (error) {

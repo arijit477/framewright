@@ -17,7 +17,44 @@ export interface Clip {
   /** Audio gain in percent (100 = unchanged, max 200). */
   volumePercent: number;
   muted: boolean;
+  /** Set for text clips (no media; `assetId` is empty). */
+  text?: TextContent;
 }
+
+export type FontFamily = 'sans' | 'serif' | 'mono' | 'handwriting';
+export type TextAlign = 'left' | 'center' | 'right';
+export type TextAnimation = 'none' | 'fade' | 'slide' | 'pop';
+
+/** Mirrors crates/engine/src/text.rs. Sizes are px at 1080p; positions are 0–1000. */
+export interface TextStyle {
+  font: FontFamily;
+  size: number;
+  /** `#rrggbb` */
+  color: string;
+  /** `#rrggbbaa`, or null for no box. */
+  background: string | null;
+  bold: boolean;
+  italic: boolean;
+  align: TextAlign;
+  x: number;
+  y: number;
+  animationIn: TextAnimation;
+  animationOut: TextAnimation;
+  animationMs: number;
+}
+
+export interface TextContent {
+  text: string;
+  style: TextStyle;
+}
+
+export const TEXT_LIMITS = {
+  maxChars: 500,
+  minSize: 12,
+  maxSize: 300,
+  positionScale: 1000,
+  maxAnimationMs: 3000,
+} as const;
 
 export interface Track {
   id: number;
@@ -35,6 +72,11 @@ export interface Layer {
   clipId: number;
   assetId: string;
   sourceTime: Micros;
+  /** Time since the clip started, and its length (for text animations). */
+  clipTime: Micros;
+  clipDuration: Micros;
+  /** Set for text clips: drawn instead of a video frame. */
+  text?: TextContent;
 }
 
 /** One audible stretch of a clip, for the audio mixer. */

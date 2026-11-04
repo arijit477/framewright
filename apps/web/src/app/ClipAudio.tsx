@@ -5,7 +5,7 @@ import { audio, selectedClip, setClipVolume, toggleMute, useEditor } from '../st
 /** Volume and mute for the selected clip. */
 export function ClipAudio() {
   const clip = useEditor(selectedClip);
-  if (!clip) return null;
+  if (!clip || clip.text) return null; // text clips have no sound
   // Remount per clip (and per committed value) so the draft resets.
   return <VolumeControl key={`${clip.id}:${clip.volumePercent}`} clip={clip} />;
 }

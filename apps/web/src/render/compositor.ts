@@ -1,13 +1,20 @@
 import type { VideoSample } from 'mediabunny';
+import type { TextContent } from '../engine/types';
 import type { RendererBackend } from './protocol';
+import { drawText } from './text';
 
 /**
  * Draws a stack of frames (bottom first) into the output canvas.
  * Effects, transforms and transitions in later phases hook in here.
  */
+/** One layer to draw, bottom first: a decoded video frame or a text overlay. */
+export type DrawItem =
+  | { kind: 'video'; sample: VideoSample }
+  | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
+
 export interface Compositor {
   readonly backend: RendererBackend;
-  draw(frames: VideoSample[]): void;
+  draw(items: DrawItem[]): void;
 }
 
 interface Rect {
@@ -64,11 +71,16 @@ class Canvas2dCompositor implements Compositor {
     this.ctx = ctx;
   }
 
-  draw(frames: VideoSample[]): void {
+  draw(items: DrawItem[]): void {
     const { width, height } = this.canvas;
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, width, height);
-    for (const frame of frames) {
+    for (const item of items) {
+      if (item.kind === 'text') {
+        drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
+        continue;
+      }
+      const frame = item.sample;
       const r = containRect(frame.displayWidth, frame.displayHeight, width, height);
       frame.draw(this.ctx, r.x, r.y, r.width, r.height);
     }
@@ -161,7 +173,10 @@ class WebGpuCompositor implements Compositor {
     return new WebGpuCompositor(canvas, device, context, pipeline, sampler, uniforms);
   }
 
-  draw(frames: VideoSample[]): void {
+  /** Text is drawn here, then uploaded like a video frame (same, self-tested pipeline). */
+  private textCanvas: OffscreenCanvas | null = null;
+
+  draw(items: DrawItem[]): void {
     const { width, height } = this.canvas;
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -177,8 +192,14 @@ class WebGpuCompositor implements Compositor {
     pass.setPipeline(this.pipeline);
 
     const videoFrames: VideoFrame[] = [];
-    frames.slice(0, MAX_LAYERS).forEach((sample, i) => {
-      const r = containRect(sample.displayWidth, sample.displayHeight, width, height);
+    items.slice(0, MAX_LAYERS).forEach((item, i) => {
+      const videoFrame = item.kind === 'video' ? item.sample.toVideoFrame() : this.textFrame(item);
+      if (!videoFrame) return;
+      videoFrames.push(videoFrame);
+      const r =
+        item.kind === 'video'
+          ? containRect(item.sample.displayWidth, item.sample.displayHeight, width, height)
+          : { x: 0, y: 0, width, height }; // text frames cover the whole canvas
       // Pixels -> clip space (-1..1, y up).
       const rect = new Float32Array([
         (r.x / width) * 2 - 1,
@@ -189,8 +210,6 @@ class WebGpuCompositor implements Compositor {
       const uniform = this.uniforms[i]!;
       this.device.queue.writeBuffer(uniform, 0, rect);
 
-      const videoFrame = sample.toVideoFrame();
-      videoFrames.push(videoFrame);
       const bindGroup = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(0),
         entries: [
@@ -211,11 +230,28 @@ class WebGpuCompositor implements Compositor {
       for (const frame of videoFrames) frame.close();
     });
   }
+
+  /** Render a text layer onto a transparent full-size canvas and snapshot it as a frame. */
+  private textFrame(item: Extract<DrawItem, { kind: 'text' }>): VideoFrame | null {
+    const { width, height } = this.canvas;
+    if (!this.textCanvas || this.textCanvas.width !== width || this.textCanvas.height !== height) {
+      this.textCanvas = new OffscreenCanvas(width, height);
+    }
+    const ctx = this.textCanvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, width, height);
+    drawText(ctx, item.content, item.clipTime, item.clipDuration, width, height);
+    // The VideoFrame copies the pixels, so the canvas can be reused for the next layer.
+    return new VideoFrame(this.textCanvas, { timestamp: 0, alpha: 'keep' });
+  }
 }
 
 /**
- * Draw a solid red VideoFrame through the production pipeline into a 4x4
- * texture and read it back. Returns false on any error or wrong colour.
+ * Draw a solid red VideoFrame, then a fully transparent one on top, through
+ * the production pipeline into a 4x4 texture, and read it back. The result
+ * must still be red: that proves video frames import correctly *and* that
+ * transparency survives (text overlays rely on it). Returns false on any
+ * error or wrong colour, so the caller falls back to Canvas 2D.
  */
 async function selfTest(
   device: GPUDevice,
@@ -231,6 +267,9 @@ async function selfTest(
   ctx.fillStyle = '#ff0000';
   ctx.fillRect(0, 0, size, size);
   const frame = new VideoFrame(source, { timestamp: 0 });
+  const clear = new OffscreenCanvas(size, size);
+  clear.getContext('2d')?.clearRect(0, 0, size, size);
+  const transparent = new VideoFrame(clear, { timestamp: 0, alpha: 'keep' });
   try {
     device.pushErrorScope('validation');
     const target = device.createTexture({
@@ -246,18 +285,20 @@ async function selfTest(
       ],
     });
     pass.setPipeline(pipeline);
-    pass.setBindGroup(
-      0,
-      device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: uniform } },
-          { binding: 1, resource: sampler },
-          { binding: 2, resource: device.importExternalTexture({ source: frame }) },
-        ],
-      }),
-    );
-    pass.draw(4);
+    for (const layer of [frame, transparent]) {
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: uniform } },
+            { binding: 1, resource: sampler },
+            { binding: 2, resource: device.importExternalTexture({ source: layer }) },
+          ],
+        }),
+      );
+      pass.draw(4);
+    }
     pass.end();
     const readback = device.createBuffer({
       size: 256 * size, // bytesPerRow must be a multiple of 256
@@ -281,5 +322,6 @@ async function selfTest(
     return false;
   } finally {
     frame.close();
+    transparent.close();
   }
 }
