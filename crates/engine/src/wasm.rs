@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::color::ColorAdjust;
 use crate::keyframe::Easing;
 use crate::text::{TextContent, TextStyle};
-use crate::timeline::{Edge, EditError, Micros, Timeline, TrackKind};
+use crate::timeline::{CopiedClip, Edge, EditError, Micros, Timeline, TrackKind};
 use crate::transform::Transform;
 use crate::transition::Transition;
 
@@ -157,6 +157,29 @@ impl Engine {
     pub fn set_clip_speed_ripple(&mut self, clip_id: u32, percent: u16) -> Result<(), JsError> {
         self.timeline
             .set_clip_speed_ripple(clip_id, percent)
+            .map_err(err)
+    }
+
+    /// Move several clips by `delta` µs, keeping their tracks (all or nothing).
+    #[wasm_bindgen(js_name = moveClips)]
+    pub fn move_clips(&mut self, clip_ids: Vec<u32>, delta: f64) -> Result<(), JsError> {
+        self.timeline
+            .move_clips(&clip_ids, to_micros(delta))
+            .map_err(err)
+    }
+
+    /// Clips for the clipboard: `[{ trackId, trackKind, clip }]`, starts relative to the earliest.
+    #[wasm_bindgen(js_name = copyClips)]
+    pub fn copy_clips(&self, clip_ids: Vec<u32>) -> Result<JsValue, JsError> {
+        to_js(&self.timeline.copy_clips(&clip_ids).map_err(err)?)
+    }
+
+    /// Paste clips from `copyClips` with the earliest at `at`. Returns the new ids.
+    #[wasm_bindgen(js_name = pasteClips)]
+    pub fn paste_clips(&mut self, copied: JsValue, at: f64) -> Result<Vec<u32>, JsError> {
+        let copied: Vec<CopiedClip> = serde_wasm_bindgen::from_value(copied)?;
+        self.timeline
+            .paste_clips(&copied, to_micros(at))
             .map_err(err)
     }
 

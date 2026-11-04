@@ -2,6 +2,7 @@ import init, { Engine } from '@framewright/engine';
 import type {
   AudioSegment,
   ColorAdjust,
+  CopiedClip,
   Easing,
   Layer,
   Micros,
@@ -157,6 +158,21 @@ export class TimelineEngine {
 
   removeClip(clipId: number): void {
     this.inner.removeClip(clipId);
+  }
+
+  /** Move several clips by `delta` µs, keeping their tracks (all or nothing). */
+  moveClips(clipIds: number[], delta: number): void {
+    this.inner.moveClips(Uint32Array.from(clipIds), delta);
+  }
+
+  /** Clips for the clipboard, starts relative to the earliest. */
+  copyClips(clipIds: number[]): CopiedClip[] {
+    return this.inner.copyClips(Uint32Array.from(clipIds)) as CopiedClip[];
+  }
+
+  /** Paste copied clips with the earliest at `at`; returns the new clip ids. */
+  pasteClips(copied: CopiedClip[], at: number): number[] {
+    return Array.from(this.inner.pasteClips(copied, at));
   }
 
   /** Remove a clip and move the later clips on its track back by its length. */

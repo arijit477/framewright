@@ -11,6 +11,7 @@ import { trackRows, transitionWindow } from './geometry';
 export function TrackList() {
   const timeline = useEditor((s) => s.timeline);
   const assets = useEditor((s) => s.assets);
+  const selected = useEditor((s) => s.selectedClipIds);
   const rows = trackRows(timeline);
   const videoCount = rows.filter((t) => t.kind === 'video').length;
   let videoSeen = 0;
@@ -30,7 +31,7 @@ export function TrackList() {
           const speed = clipSpeed(c) !== 1 ? ` at ${clipSpeed(c)}× speed` : '';
           const count = visibleKeyframes(c).length;
           const keys = count > 0 ? `, ${count} keyframe${count === 1 ? '' : 's'}` : '';
-          return `${transition}${name} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}${speed}${keys}`;
+          return `${transition}${name} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}${speed}${keys}${selected.includes(c.id) ? ' (selected)' : ''}`;
         });
         return (
           <li key={track.id} aria-label={name}>

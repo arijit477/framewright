@@ -260,6 +260,18 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
 
+## Selection and clipboard
+
+See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
+
+- **Selection (`store/editor.ts`):** `selectedClipIds` (all) and `selectedClipId` (the one the
+  panel edits). Ctrl/⌘/Shift-click toggles, Ctrl/⌘+A selects all.
+- **Engine:** `move_clips` (one time shift for many clips, all or nothing), `copy_clips` /
+  `paste_clips` (clips with their tracks, relative times; paste reuses the original tracks if
+  there's room, otherwise adds tracks, never overwrites).
+- **UI:** dragging a selected clip moves the group (previewed live). Delete, cut, copy and paste
+  work on the selection; pasted clips are selected.
+
 ## Ripple editing
 
 See [ADR 0017](./adr/0017-ripple-editing.md).

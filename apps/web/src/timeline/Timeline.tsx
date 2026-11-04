@@ -6,7 +6,9 @@ import {
   edit,
   moveClip,
   seek,
+  moveSelection,
   selectClip,
+  toggleClipSelection,
   setView,
   thumbnails,
   useEditor,
@@ -62,6 +64,11 @@ const COLORS = {
 interface MoveDrag {
   kind: 'move';
   clip: Clip;
+  /**
+   * Set when dragging one clip of a multi-selection: every selected clip moves
+   * by the same amount, each on its own track.
+   */
+  group: number[] | null;
   grabOffsetUs: number;
   previewStart: number;
   originTrackId: number;
@@ -134,11 +141,12 @@ export function Timeline() {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
 
-  const snapTargets = (exclude: number) => {
+  const snapTargets = (exclude: number | number[]) => {
     const { timeline, playhead } = useEditor.getState();
+    const excluded = Array.isArray(exclude) ? exclude : [exclude];
     const edges = timeline.tracks
       .flatMap((t) => t.clips)
-      .filter((c) => c.id !== exclude)
+      .filter((c) => !excluded.includes(c.id))
       .flatMap((c) => [c.start, clipEnd(c)]);
     return [0, playhead, ...edges];
   };
@@ -152,7 +160,20 @@ export function Timeline() {
     const at = xToTime(x, view);
 
     if (hit.kind === 'clip') {
-      selectClip(hit.clip.id);
+      // Ctrl/⌘/Shift-click adds or removes a clip from the selection (no drag).
+      if ((event.ctrlKey || event.metaKey || event.shiftKey) && !hit.edge) {
+        toggleClipSelection(hit.clip.id);
+        dragRef.current = null;
+        draw();
+        return;
+      }
+      // Grabbing a clip of a multi-selection drags them all; anything else selects just it.
+      const { selectedClipIds } = useEditor.getState();
+      const group =
+        !hit.edge && selectedClipIds.length > 1 && selectedClipIds.includes(hit.clip.id)
+          ? selectedClipIds
+          : null;
+      if (!group) selectClip(hit.clip.id);
       dragRef.current = hit.edge
         ? {
             kind: 'trim',
@@ -164,6 +185,7 @@ export function Timeline() {
         : {
             kind: 'move',
             clip: hit.clip,
+            group,
             grabOffsetUs: at - hit.clip.start,
             previewStart: hit.clip.start,
             originTrackId: hit.trackId,
@@ -195,14 +217,24 @@ export function Timeline() {
         seek(at);
         break;
       case 'move': {
-        const targets = snapTargets(drag.clip.id);
-        const start = Math.max(0, at - drag.grabOffsetUs);
+        const targets = snapTargets(drag.group ?? drag.clip.id);
+        // A group stops when its earliest clip reaches 0.
+        const earliest = drag.group
+          ? Math.min(
+              ...timeline.tracks
+                .flatMap((t) => t.clips)
+                .filter((c) => drag.group!.includes(c.id))
+                .map((c) => c.start),
+            )
+          : drag.clip.start;
+        const start = Math.max(drag.clip.start - earliest, at - drag.grabOffsetUs);
         // Snap whichever edge of the clip is closer to a target.
         const snappedStart = snap(start, targets, view);
         const snappedEnd = snap(start + drag.clip.duration, targets, view) - drag.clip.duration;
         drag.previewStart =
           snappedStart !== start ? snappedStart : snappedEnd !== start ? snappedEnd : start;
-        drag.target = dropTarget(timeline, view, y, drag.trackKind);
+        // A group keeps its tracks: only a single clip can move to another track.
+        if (!drag.group) drag.target = dropTarget(timeline, view, y, drag.trackKind);
         draw();
         break;
       }
@@ -216,7 +248,12 @@ export function Timeline() {
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
-    if (drag?.kind === 'move') {
+    if (drag?.kind === 'move' && drag.group) {
+      const delta = drag.previewStart - drag.clip.start;
+      // A click without moving narrows the selection to that clip, as in other editors.
+      if (delta === 0) selectClip(drag.clip.id);
+      else moveSelection(delta);
+    } else if (drag?.kind === 'move') {
       const { target } = drag;
       const sameTrack = target.type === 'track' && target.trackId === drag.originTrackId;
       if (!sameTrack) {
@@ -322,6 +359,8 @@ function paint(
         top + TRACK_HEIGHT / 2,
       );
     }
+    // A group drag moves every selected clip by the same amount.
+    const groupShift = moving?.group ? moving.previewStart - moving.clip.start : 0;
     // A ripple trim on this track moves every clip after the trimmed one.
     const rippling =
       drag?.kind === 'trim' && drag.ripple && track.clips.some((c) => c.id === drag.clip.id)
@@ -333,12 +372,13 @@ function paint(
     for (const clip of track.clips) {
       if (moving?.clip.id === clip.id && movesAway(track.id)) continue;
       const follows = rippling !== null && clip.start >= clipEnd(rippling.clip);
+      const inMovingGroup = moving?.group?.includes(clip.id) === true && clip.id !== moving.clip.id;
       drawClip(ctx, state, drag, {
         clip,
         kind: track.kind,
         top,
         width,
-        offset: follows ? rippleShift : 0,
+        offset: follows ? rippleShift : inMovingGroup ? groupShift : 0,
       });
     }
     // Transitions sit on the cuts, over both clips (hidden while either is being
@@ -347,6 +387,7 @@ function paint(
       const before = track.clips[index - 1];
       if (
         !rippling &&
+        !moving?.group &&
         (!drag ||
           drag.kind === 'scrub' ||
           (drag.clip.id !== clip.id && drag.clip.id !== before?.id))
@@ -396,7 +437,7 @@ function drawClip(
     offset?: number;
   },
 ) {
-  const { view, assets, peaks, selectedClipId } = state;
+  const { view, assets, peaks, selectedClipIds } = state;
   let start = clip.start + offset;
   let end = clipEnd(clip) + offset;
   // Where the clip's media is anchored: the timeline time that would show `sourceIn`.
@@ -416,7 +457,7 @@ function drawClip(
 
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.75;
-  const selected = clip.id === selectedClipId;
+  const selected = selectedClipIds.includes(clip.id);
   const isAudio = kind === 'audio';
   const missing = assets[clip.assetId]?.missing ?? false;
   ctx.fillStyle = clip.text

@@ -67,19 +67,29 @@ export class EditorPage {
     await this.page.mouse.click(box.x + this.xAt(seconds), box.y + RULER_HEIGHT / 2);
   }
 
-  /** Click inside a clip on track `trackIndex` (0 = video, 1 = audio) at `seconds`. */
-  async clickClip(trackIndex: number, seconds: number) {
+  /**
+   * Click inside a clip on track `trackIndex` (0 = video, 1 = audio) at
+   * `seconds`, optionally holding a modifier (Control adds to the selection).
+   */
+  async clickClip(trackIndex: number, seconds: number, { modifier }: { modifier?: string } = {}) {
     const box = await this.box();
     const y = RULER_HEIGHT + TRACK_GAP + trackIndex * (TRACK_HEIGHT + TRACK_GAP) + TRACK_HEIGHT / 2;
+    if (modifier) await this.page.keyboard.down(modifier);
     await this.page.mouse.click(box.x + this.xAt(seconds), box.y + y);
+    if (modifier) await this.page.keyboard.up(modifier);
   }
 
-  /** The accessible track list, top row first, e.g. "Video 2: red.webm from 00:02:00 to 00:05:00". */
-  async tracks(): Promise<string[]> {
-    return this.page
+  /**
+   * The accessible track list, top row first, e.g. "Video 2: red.webm from
+   * 00:02:00 to 00:05:00". The " (selected)" marks on selected clips are left
+   * out unless `withSelection` is set, so layout checks don't depend on it.
+   */
+  async tracks({ withSelection = false } = {}): Promise<string[]> {
+    const texts = await this.page
       .getByRole('list', { name: 'Timeline tracks' })
       .getByRole('listitem')
       .allInnerTexts();
+    return withSelection ? texts : texts.map((t) => t.replaceAll(' (selected)', ''));
   }
 
   /**

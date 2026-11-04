@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
   addText,
+  copySelected,
+  cutSelected,
   deleteSelected,
+  paste,
+  selectAll,
   importFiles,
   selectedClip,
   toggleMute,
@@ -68,6 +72,17 @@ export function App() {
         if (event.shiftKey) redo();
         else undo();
         return;
+      }
+      // Clipboard and select all (after the text-field check above, so those keep working there).
+      if (mod && !event.shiftKey && !event.altKey) {
+        const action = { a: selectAll, c: copySelected, x: cutSelected, v: paste }[
+          event.key.toLowerCase()
+        ];
+        if (action) {
+          event.preventDefault();
+          action();
+          return;
+        }
       }
       if (mod) return;
       switch (event.key) {

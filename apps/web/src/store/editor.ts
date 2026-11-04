@@ -6,6 +6,7 @@ import {
   IDENTITY_TRANSFORM,
   type Clip,
   type ColorAdjust,
+  type CopiedClip,
   type Easing,
   type Micros,
   type TextContent,
@@ -48,7 +49,10 @@ export interface EditorState {
   thumbsVersion: number;
   playhead: number;
   playing: boolean;
+  /** The clip the panel edits: the last one clicked. Always in `selectedClipIds`. */
   selectedClipId: number | null;
+  /** Every selected clip (Ctrl/⌘/Shift-click adds and removes; Ctrl/⌘+A selects all). */
+  selectedClipIds: number[];
   view: View;
   importing: number;
   message: { kind: 'error' | 'info'; text: string } | null;
@@ -86,6 +90,7 @@ export const useEditor = create<EditorState>(() => ({
   playhead: 0,
   playing: false,
   selectedClipId: null,
+  selectedClipIds: [],
   ripple: loadRipple(),
   view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   importing: 0,
@@ -215,10 +220,13 @@ export function redo() {
  * open inspector stays on the clip being edited; otherwise clear it.
  */
 function keepSelectionIfPresent() {
-  const { selectedClipId, timeline } = get();
-  if (selectedClipId === null) return;
-  const exists = timeline.tracks.some((t) => t.clips.some((c) => c.id === selectedClipId));
-  if (!exists) set({ selectedClipId: null });
+  const { selectedClipId, selectedClipIds, timeline } = get();
+  if (selectedClipIds.length === 0) return;
+  const existing = new Set(timeline.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+  const ids = selectedClipIds.filter((id) => existing.has(id));
+  if (ids.length === selectedClipIds.length) return;
+  const primary = selectedClipId !== null && existing.has(selectedClipId) ? selectedClipId : null;
+  set({ selectedClipIds: ids, selectedClipId: primary ?? ids.at(-1) ?? null });
 }
 
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -360,6 +368,7 @@ export async function loadProject(project: {
     peaks: {},
     playhead: 0,
     selectedClipId: null,
+    selectedClipIds: [],
     view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   });
   refresh();
@@ -493,7 +502,26 @@ export const togglePlay = () => (get().playing ? pause() : play());
 
 // ---------------------------------------------------------------- editing commands
 
-export const selectClip = (clipId: number | null) => set({ selectedClipId: clipId });
+/** Select just this clip (or nothing). */
+export const selectClip = (clipId: number | null) =>
+  set({ selectedClipId: clipId, selectedClipIds: clipId === null ? [] : [clipId] });
+
+/** Add a clip to the selection, or take it out (Ctrl/⌘/Shift-click). */
+export function toggleClipSelection(clipId: number): void {
+  const { selectedClipIds } = get();
+  const ids = selectedClipIds.includes(clipId)
+    ? selectedClipIds.filter((id) => id !== clipId)
+    : [...selectedClipIds, clipId];
+  set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
+}
+
+/** Select every clip on the timeline (Ctrl/⌘+A). */
+export function selectAll(): void {
+  const { timeline, selectedClipId } = get();
+  const ids = timeline.tracks.flatMap((t) => t.clips.map((c) => c.id));
+  const primary = selectedClipId !== null && ids.includes(selectedClipId) ? selectedClipId : null;
+  set({ selectedClipIds: ids, selectedClipId: primary ?? ids.at(-1) ?? null });
+}
 
 export function selectedClip(state: EditorState = get()): Clip | null {
   if (state.selectedClipId === null) return null;
@@ -520,18 +548,74 @@ export function splitAtPlayhead() {
 }
 
 /**
- * Delete the selected clip. With ripple (the toggle, or Shift+Delete), the
- * later clips on its track move back to close the space it leaves.
+ * Delete the selected clips (one undo step). With ripple (the toggle, or
+ * Shift+Delete), the later clips on each track move back to close the space.
  */
 export function deleteSelected({ ripple = get().ripple }: { ripple?: boolean } = {}) {
-  const { selectedClipId } = get();
-  if (selectedClipId === null) return;
+  const { selectedClipIds, timeline } = get();
+  if (selectedClipIds.length === 0) return;
+  // Latest first, so each ripple only moves clips that are still to the right of it.
+  const starts = new Map(timeline.tracks.flatMap((t) => t.clips.map((c) => [c.id, c.start])));
+  const ids = [...selectedClipIds].sort((a, b) => (starts.get(b) ?? 0) - (starts.get(a) ?? 0));
   const removed = edit((e) => {
-    if (ripple) e.rippleDelete(selectedClipId);
-    else e.removeClip(selectedClipId);
+    for (const id of ids) {
+      if (ripple) e.rippleDelete(id);
+      else e.removeClip(id);
+    }
     e.pruneEmptyTracks(); // same undo step: undo brings the track back too
   });
-  if (removed) set({ selectedClipId: null });
+  if (removed) selectClip(null);
+}
+
+/** Move the selected clips by `delta` µs, keeping their tracks (one undo step). */
+export function moveSelection(delta: number): boolean {
+  const ids = get().selectedClipIds;
+  return ids.length > 0 && edit((e) => e.moveClips(ids, delta));
+}
+
+// ---------------------------------------------------------------- clipboard
+
+/** Copied clips, kept in memory for this tab (pasting works across projects for titles and shared media). */
+let clipboard: CopiedClip[] | null = null;
+
+/** Copy the selected clips (Ctrl/⌘+C). */
+export function copySelected(): boolean {
+  const ids = get().selectedClipIds;
+  if (ids.length === 0) return false;
+  clipboard = requireEngine().copyClips(ids);
+  notify('info', ids.length === 1 ? 'Copied 1 clip.' : `Copied ${ids.length} clips.`);
+  return true;
+}
+
+/** Copy, then delete (Ctrl/⌘+X; ripples if ripple editing is on). */
+export function cutSelected(): void {
+  if (copySelected()) deleteSelected();
+}
+
+/**
+ * Paste at the playhead (Ctrl/⌘+V), keeping the clips' spacing and tracks;
+ * where a track has no room, the engine adds a new one. The pasted clips
+ * become the selection.
+ */
+export function paste(): void {
+  if (!clipboard) {
+    notify('info', 'Nothing to paste yet: select clips and copy them first.');
+    return;
+  }
+  const { assets, playhead } = get();
+  const usable = clipboard.filter((c) => c.clip.text || assets[c.clip.assetId]);
+  if (usable.length < clipboard.length) {
+    notify(
+      'info',
+      'Some copied clips use media that isn’t in this project, so they were left out.',
+    );
+  }
+  if (usable.length === 0) return;
+  let ids: number[] = [];
+  const pasted = edit((e) => {
+    ids = e.pasteClips(usable, playhead);
+  });
+  if (pasted) set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
 }
 
 export function setRipple(on: boolean): void {

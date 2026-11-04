@@ -39,13 +39,15 @@ leaves your machine.
   missing media
 - Backups: download any project as a `.framewright` file (a standard ZIP with your original
   media) and import it in any browser or on another computer
+- Multi-select (Ctrl/⌘-click, Ctrl/⌘+A): move or delete several clips at once; copy, cut and
+  paste clips at the playhead
 - Undo/redo for every edit
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
   <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove (<kbd>Shift</kbd>+<kbd>Delete</kbd> closes the gap), <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
-  <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
+  <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy/cut/paste, <kbd>Ctrl/⌘</kbd>+<kbd>A</kbd> select all, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: multi-select and copy/paste, LUTs, and local AI auto-captions.
+Coming next: LUTs, marquee selection, and local AI auto-captions.
 
 ## Architecture at a glance
 
