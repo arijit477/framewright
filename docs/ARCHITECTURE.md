@@ -238,6 +238,28 @@ See [ADR 0010](./adr/0010-text-overlays.md).
 - **Fonts:** generic system font stacks, which are available inside workers (and so in
   export). Bundled custom fonts are on the roadmap.
 
+## Transforms and gestures
+
+See [ADR 0011](./adr/0011-transforms-and-gestures.md).
+
+- **Model (Rust, `transform.rs`):** every media clip has a validated `transform` (centre in
+  thousandths of the frame, which may go off-frame; scale %; clockwise rotation in degrees;
+  opacity %). It's omitted from saved projects when unchanged. Text clips keep their own style
+  position (`TransformOnText` is rejected).
+- **One placement function:** `render/transform.ts` `layerMatrix()` maps the source frame (a
+  unit square) to canvas pixels: fit (letterbox), scale about the centre, rotate, move.
+  Canvas 2D applies it with `setTransform`. WebGPU converts it with `toClipSpace()` into an
+  8-float uniform (matrix plus opacity) used by the same shader for video, text and the
+  self-test. Both functions are unit-tested, so the backends can't disagree, even though CI
+  can't run the GPU path.
+- **Gestures:** `beginGesture` / `updateGesture` / `endGesture` / `cancelGesture` in the store
+  apply changes live, validate each update, and record **one** undo step per drag; Escape or
+  a pointer cancel restores the start. Dragging on the preview moves the selected clip (or the
+  topmost visible one): titles via their style position, video via the transform.
+- **Pending edits:** inspectors debounce typing and slider drags, and register their debouncers
+  in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
+  page hide/unload flush them first, so a change made a moment ago is never left out.
+
 ## Timeline thumbnails
 
 Video clips show a filmstrip (`apps/web/src/thumbnails`):
