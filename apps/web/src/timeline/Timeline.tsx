@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipEnd, clipSpeed, type Clip, type Track, type TrackKind } from '../engine/types';
 import { PEAKS_PER_SECOND } from '../audio/protocol';
 import { formatTimecode, MICROS_PER_SECOND, rulerStep } from '../lib/time';
@@ -25,6 +25,10 @@ import {
   peakToHeight,
   transitionWindow,
   trimPreview,
+  stepClip,
+  trackNames,
+  TRACK_PADDING_X,
+  type ClipStep,
   clipsInRect,
   rectBetween,
   type Rect,
@@ -126,6 +130,8 @@ export function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<Drag | null>(null);
+  /** What a screen reader hears after a keyboard move on the timeline. */
+  const [announcement, setAnnouncement] = useState('');
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -334,6 +340,58 @@ export function Timeline() {
     draw();
   };
 
+  /** Keyboard selection (only while the timeline has focus): see #timeline-keys. */
+  const onKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    const steps: Record<string, ClipStep> = {
+      ArrowLeft: 'previous',
+      ArrowRight: 'next',
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      Home: 'first',
+      End: 'last',
+    };
+    const state = useEditor.getState();
+    if (event.key === 'Escape') {
+      if (state.selectedClipIds.length === 0) return;
+      event.preventDefault();
+      selectClip(null);
+      setAnnouncement('Selection cleared.');
+      return;
+    }
+    const step = steps[event.key];
+    if (!step || event.ctrlKey || event.metaKey || event.altKey) return;
+    event.preventDefault(); // handled here: the app's arrow keys (frame steps) stand aside
+    const extend = event.shiftKey && (step === 'previous' || step === 'next');
+    const target = stepClip(state.timeline, state.selectedClipId, step, state.playhead);
+    if (target === null) return; // already at the edge: stay put
+    if (extend) setSelection([...state.selectedClipIds.filter((id) => id !== target), target]);
+    else selectClip(target);
+    const clip = state.timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === target)!;
+    seek(clip.start);
+    revealTime(clip.start);
+    setAnnouncement(describeSelection(clip));
+  };
+
+  /** Scroll so timeline time `at` is in view (with a second of context). */
+  const revealTime = (at: number) => {
+    const { view } = useEditor.getState();
+    const width = canvasRef.current?.clientWidth ?? 0;
+    const visibleUs = ((width - TRACK_PADDING_X) / view.pxPerSecond) * MICROS_PER_SECOND;
+    if (at < view.scrollUs || at > view.scrollUs + visibleUs * 0.9) {
+      setView({ scrollUs: Math.max(0, at - MICROS_PER_SECOND) });
+    }
+  };
+
+  /** "red.webm on Video 1, 00:06:00 to 00:09:00", plus the selection size when it's more than one. */
+  const describeSelection = (clip: Clip) => {
+    const { timeline, assets, selectedClipIds } = useEditor.getState();
+    const track = timeline.tracks.find((t) => t.clips.some((c) => c.id === clip.id))!;
+    const name = clip.text ? `text “${clip.text.text}”` : (assets[clip.assetId]?.name ?? 'clip');
+    const where = `${name} on ${trackNames(timeline).get(track.id)}, ${formatTimecode(clip.start)} to ${formatTimecode(clipEnd(clip))}`;
+    const count = selectedClipIds.length;
+    return count > 1 ? `${where}. ${count} clips selected.` : `${where}.`;
+  };
+
   const onWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     const { view } = useEditor.getState();
     if (event.ctrlKey || event.metaKey) {
@@ -361,10 +419,35 @@ export function Timeline() {
   };
 
   return (
-    <div ref={containerRef} className="timeline" aria-label="Timeline">
+    <div ref={containerRef} className="timeline">
       <TrackList />
+      <p id="timeline-keys" className="visually-hidden">
+        Left and Right arrows move between clips on a track, Up and Down to the track above or
+        below, Home and End to its first and last clip. Shift with Left or Right adds clips to the
+        selection, and Escape clears it.
+      </p>
+      {/* A live region without the "status" role: the app's notifications use that one. */}
+      <div
+        id="timeline-announcement"
+        className="visually-hidden"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </div>
       <canvas
         ref={canvasRef}
+        // A focus stop for keyboard users. A mouse click doesn't focus it (so arrow
+        // keys keep stepping frames), but still takes focus from a field, as before.
+        tabIndex={0}
+        role="application"
+        aria-label="Timeline"
+        aria-describedby="timeline-keys"
+        onKeyDown={onKeyDown}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          (document.activeElement as HTMLElement | null)?.blur();
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

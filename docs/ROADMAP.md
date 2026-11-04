@@ -64,7 +64,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Selection box (drag on empty track space)
 - [x] Duplicate (Ctrl/⌘+D), inserting when ripple editing is on
 - [x] Editing several clips at once (speed, volume, mute, colour), with mixed values shown
-- [ ] Keyboard selection of clips; transforms for several clips
+- [x] Keyboard selection of clips (Tab into the timeline; arrows, Home/End, Shift, Escape)
+- [ ] Keyboard moving and trimming of clips; transforms for several clips
 - [ ] Proxy media for 4K sources
 
 ## Phase 3: Smart features (v0.3.0)

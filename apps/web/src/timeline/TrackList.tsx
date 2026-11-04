@@ -2,7 +2,7 @@ import { clipEnd, clipSpeed } from '../engine/types';
 import { visibleKeyframes } from '../lib/keyframes';
 import { formatTimecode } from '../lib/time';
 import { useEditor } from '../store/editor';
-import { trackRows, transitionWindow } from './geometry';
+import { trackNames, trackRows, transitionWindow } from './geometry';
 
 /**
  * The canvas timeline is invisible to screen readers, so this visually hidden
@@ -13,16 +13,12 @@ export function TrackList() {
   const assets = useEditor((s) => s.assets);
   const selected = useEditor((s) => s.selectedClipIds);
   const rows = trackRows(timeline);
-  const videoCount = rows.filter((t) => t.kind === 'video').length;
-  let videoSeen = 0;
-  let audioSeen = 0;
+  const names = trackNames(timeline);
 
   return (
     <ul className="visually-hidden" aria-label="Timeline tracks">
       {rows.map((track) => {
-        // Number like other editors: Video 1 is the bottom layer, Audio 1 the first audio track.
-        const name =
-          track.kind === 'video' ? `Video ${videoCount - videoSeen++}` : `Audio ${++audioSeen}`;
+        const name = names.get(track.id)!;
         const clips = track.clips.map((c, i) => {
           const name = c.text ? `text “${c.text.text}”` : (assets[c.assetId]?.name ?? 'clip');
           const transition = transitionWindow(track.clips[i - 1], c)

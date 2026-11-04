@@ -277,6 +277,13 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Keyboard access to the timeline
+
+See [ADR 0020](./adr/0020-keyboard-timeline.md). The timeline canvas is a Tab stop: arrow keys,
+Home/End and Shift+arrows move or extend the selection between clips (`stepClip`), Escape clears
+it, and a live region announces each move. Clicks don't focus it, so for mouse users the arrows
+keep stepping frames; keys it handles are marked so the app-wide shortcuts skip them.
+
 ## Ripple editing
 
 See [ADR 0017](./adr/0017-ripple-editing.md).
