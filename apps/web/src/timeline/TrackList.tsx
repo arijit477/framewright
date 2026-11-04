@@ -23,7 +23,7 @@ export function TrackList() {
           track.kind === 'video' ? `Video ${videoCount - videoSeen++}` : `Audio ${++audioSeen}`;
         const clips = track.clips.map(
           (c) =>
-            `${assets[c.assetId]?.name ?? 'clip'} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}`,
+            `${c.text ? `text “${c.text.text}”` : (assets[c.assetId]?.name ?? 'clip')} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}`,
         );
         return (
           <li key={track.id} aria-label={name}>

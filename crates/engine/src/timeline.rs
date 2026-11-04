@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::text::{TextContent, TextError};
+
 /// Time in microseconds.
 pub type Micros = i64;
 
@@ -47,9 +49,17 @@ pub struct Clip {
     pub volume_percent: u16,
     #[serde(default)]
     pub muted: bool,
+    /// Set for text clips, which show this text instead of media.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextContent>,
 }
 
 pub const MAX_VOLUME_PERCENT: u16 = 200;
+
+/// Text clips have no media: they use this asset id...
+pub const TEXT_ASSET_ID: &str = "";
+/// ...and an effectively unlimited "source", so they can be trimmed to any length.
+pub const TEXT_SOURCE_DURATION: Micros = 24 * 3600 * 1_000_000;
 
 fn default_volume() -> u16 {
     100
@@ -105,6 +115,12 @@ pub struct Layer {
     pub asset_id: String,
     /// The time inside the source media to show.
     pub source_time: Micros,
+    /// Time since the clip started, and its length (for text animations).
+    pub clip_time: Micros,
+    pub clip_duration: Micros,
+    /// Set for text clips: what to draw instead of a video frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextContent>,
 }
 
 /// One audible stretch of a clip, as the audio mixer needs it.
@@ -142,6 +158,12 @@ pub enum EditError {
     InvalidVolume(u16),
     #[error("invalid project data: {0}")]
     InvalidProject(String),
+    #[error("invalid text: {0}")]
+    InvalidText(#[from] TextError),
+    #[error("clip {0} is not a text clip")]
+    NotText(ClipId),
+    #[error("text can only go on a video track")]
+    TextNeedsVideoTrack,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,6 +251,72 @@ impl Timeline {
         if duration < MIN_CLIP_DURATION || source_in < 0 || source_in + duration > source_duration {
             return Err(EditError::InvalidDuration);
         }
+        self.insert_clip(
+            track_id,
+            asset_id,
+            start,
+            duration,
+            source_in,
+            source_duration,
+            None,
+        )
+    }
+
+    /// Add a text clip (a title or caption) to a video track.
+    pub fn add_text_clip(
+        &mut self,
+        track_id: TrackId,
+        start: Micros,
+        duration: Micros,
+        content: TextContent,
+    ) -> Result<ClipId, EditError> {
+        content.validate()?;
+        let index = self.track_index(track_id)?;
+        if self.tracks[index].kind != TrackKind::Video {
+            return Err(EditError::TextNeedsVideoTrack);
+        }
+        if !(MIN_CLIP_DURATION..=TEXT_SOURCE_DURATION).contains(&duration) {
+            return Err(EditError::InvalidDuration);
+        }
+        self.insert_clip(
+            track_id,
+            TEXT_ASSET_ID,
+            start,
+            duration,
+            0,
+            TEXT_SOURCE_DURATION,
+            Some(content),
+        )
+    }
+
+    /// Replace a text clip's content and style.
+    pub fn set_clip_text(
+        &mut self,
+        clip_id: ClipId,
+        content: TextContent,
+    ) -> Result<(), EditError> {
+        content.validate()?;
+        let (t, c) = self.locate(clip_id)?;
+        let clip = &mut self.tracks[t].clips[c];
+        if clip.text.is_none() {
+            return Err(EditError::NotText(clip_id));
+        }
+        clip.text = Some(content);
+        Ok(())
+    }
+
+    /// Shared by media and text clips: overlap check, id allocation, sorted insert.
+    #[allow(clippy::too_many_arguments)]
+    fn insert_clip(
+        &mut self,
+        track_id: TrackId,
+        asset_id: &str,
+        start: Micros,
+        duration: Micros,
+        source_in: Micros,
+        source_duration: Micros,
+        text: Option<TextContent>,
+    ) -> Result<ClipId, EditError> {
         let start = start.max(0);
         let index = self.track_index(track_id)?;
         if !self.tracks[index].is_free(start, start + duration, None) {
@@ -244,6 +332,7 @@ impl Timeline {
             source_duration,
             volume_percent: default_volume(),
             muted: false,
+            text,
         });
         Ok(id)
     }
@@ -367,6 +456,9 @@ impl Timeline {
                     clip_id: clip.id,
                     asset_id: clip.asset_id.clone(),
                     source_time: clip.source_in + (at - clip.start),
+                    clip_time: at - clip.start,
+                    clip_duration: clip.duration,
+                    text: clip.text.clone(),
                 })
             })
             .collect()
@@ -382,6 +474,8 @@ impl Timeline {
             .tracks
             .iter()
             .flat_map(|t| &t.clips)
+            // Text clips have no sound.
+            .filter(|c| c.text.is_none())
             .filter(|c| !c.muted && c.volume_percent > 0 && c.start < to && from < c.end())
             .map(|c| AudioSegment {
                 clip_id: c.id,
@@ -666,6 +760,84 @@ mod tests {
         tl.add_track(TrackKind::Audio);
         assert!(tl.prune_empty_tracks().is_empty());
         assert_eq!(tl.tracks.len(), 2);
+    }
+
+    fn title(text: &str) -> TextContent {
+        TextContent {
+            text: text.into(),
+            style: crate::text::TextStyle::default(),
+        }
+    }
+
+    #[test]
+    fn text_clips_are_resolved_as_text_layers() {
+        let mut tl = Timeline::new();
+        let video = tl.add_track(TrackKind::Video);
+        let titles = tl.add_track(TrackKind::Video);
+        tl.add_clip(video, "a", 0, 10 * S, 0, 10 * S).unwrap();
+        tl.add_text_clip(titles, 2 * S, 3 * S, title("Hello"))
+            .unwrap();
+
+        let layers = tl.resolve(3 * S);
+        assert_eq!(layers.len(), 2);
+        assert_eq!(layers[0].text, None, "the video layer is underneath");
+        let text = &layers[1];
+        assert_eq!(text.text.as_ref().unwrap().text, "Hello");
+        assert_eq!((text.clip_time, text.clip_duration), (S, 3 * S));
+    }
+
+    #[test]
+    fn text_needs_a_video_track_and_valid_content() {
+        let mut tl = Timeline::new();
+        let audio = tl.add_track(TrackKind::Audio);
+        let video = tl.add_track(TrackKind::Video);
+        assert_eq!(
+            tl.add_text_clip(audio, 0, S, title("Hi")),
+            Err(EditError::TextNeedsVideoTrack)
+        );
+        assert_eq!(
+            tl.add_text_clip(video, 0, S, title(" ")),
+            Err(EditError::InvalidText(TextError::Empty))
+        );
+    }
+
+    #[test]
+    fn text_clips_split_trim_freely_and_are_silent() {
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        let clip = tl.add_text_clip(track, 0, 4 * S, title("Hi")).unwrap();
+        let right = tl.split_clip(clip, 2 * S).unwrap();
+        assert!(tl.tracks[0]
+            .clips
+            .iter()
+            .all(|c| c.text == Some(title("Hi"))));
+        tl.trim_clip(right, Edge::End, 60 * S).unwrap(); // no media length to run out of
+        assert_eq!(tl.duration(), 60 * S);
+        assert!(tl.audio_segments(0, 60 * S).is_empty());
+    }
+
+    #[test]
+    fn set_clip_text_validates_and_only_applies_to_text_clips() {
+        let (mut tl, track, media) = timeline_with_clip();
+        let text = tl.add_text_clip(track, 8 * S, S, title("Old")).unwrap();
+        tl.set_clip_text(text, title("New")).unwrap();
+        assert_eq!(tl.resolve(8 * S)[0].text.as_ref().unwrap().text, "New");
+        assert_eq!(
+            tl.set_clip_text(media, title("No")),
+            Err(EditError::NotText(media))
+        );
+        assert_eq!(
+            tl.set_clip_text(text, title("")),
+            Err(EditError::InvalidText(TextError::Empty))
+        );
+    }
+
+    #[test]
+    fn text_survives_a_json_round_trip() {
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        tl.add_text_clip(track, 0, S, title("Saved")).unwrap();
+        assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
     }
 
     #[test]

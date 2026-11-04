@@ -22,12 +22,12 @@ import {
   WebMOutputFormat,
   type InputAudioTrack,
   type InputVideoTrack,
-  type VideoSample,
 } from 'mediabunny';
 import { Mixer } from '../audio/mixer';
 import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
 import { openAsset } from '../media/asset';
+import { drawItems } from '../render/compose';
 import { createCompositor } from '../render/compositor';
 import { FrameReader } from '../render/frame-reader';
 import { ReaderPool } from '../render/reader-pool';
@@ -182,12 +182,7 @@ async function run(
 
       // Video: resolve the layers, decode, composite, encode.
       const layers = engine.resolve(frameTimeUs(i, settings.fps));
-      const decoded = await Promise.all(
-        layers.map((layer) =>
-          readers.get(layer.assetId, layer.trackIndex)?.frameAt(layer.sourceTime / 1_000_000),
-        ),
-      );
-      compositor.draw(decoded.filter((f): f is VideoSample => f != null));
+      compositor.draw(await drawItems(layers, readers));
       await videoSource.add(i / settings.fps, 1 / settings.fps);
 
       // Audio: keep it level with the video so the muxer can interleave.

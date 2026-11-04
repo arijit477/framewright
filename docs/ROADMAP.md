@@ -42,7 +42,9 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 
 ## Phase 2: Real editing (v0.2.0)
 
-- [ ] Text layers: font, size, colour, position, simple in/out animations
+- [x] Text layers: font, size, colour, box, bold/italic, alignment, position, fade/slide/pop in and out
+- [ ] Custom fonts (bundled web fonts available to the export worker)
+- [ ] Drag text directly on the preview to position it
 - [ ] Transform: position, scale, rotation, opacity, with keyframes
 - [ ] Transitions: crossfade, slide, wipe (WGSL)
 - [ ] Filters: brightness/contrast/saturation, LUTs; plugin API for effects

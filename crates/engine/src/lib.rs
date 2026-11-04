@@ -8,6 +8,7 @@
 //! future desktop build (Tauri), so it must not depend on browser APIs outside
 //! [`wasm`].
 
+pub mod text;
 pub mod timeline;
 pub mod wasm;
 
