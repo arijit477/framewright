@@ -1,6 +1,6 @@
 # 0021: Local AI auto-captions
 
-- **Status:** Accepted
+- **Status:** Accepted (models and caption shaping updated by [ADR 0022](./0022-word-highlight.md))
 - **Date:** 2026-11-04
 
 ## Context

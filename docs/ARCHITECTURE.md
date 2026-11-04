@@ -285,8 +285,13 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   shared `Mixer`), skips silent blocks, and runs Whisper with Transformers.js on ONNX Runtime Web
   (the engine is bundled). The model (pinned revisions in `captions/protocol.ts`) downloads from
   Hugging Face once and is cached by the browser. One worker per run, terminated after.
-- **Shaping (`captions/segments.ts`):** timed phrases become readable captions (two lines of 42
-  characters, 0.7–6 s, no overlaps); `captions/srt.ts` writes .srt and .vtt.
+- **Shaping (`captions/segments.ts`):** timed words become readable captions (two lines of 42
+  characters, 0.7–6 s, broken at pauses and sentence ends, no overlaps), each keeping its words'
+  times; `captions/srt.ts` writes .srt and .vtt.
+- **Word highlighting ([ADR 0022](./adr/0022-word-highlight.md)):** a text clip's `words` are
+  times in its source, so edits keep them aligned; `drawText` (`render/text.ts`) draws the word
+  being spoken in `style.highlight`, identically in preview and export. Changing the number of
+  words in the text drops the timings (`updateText`).
 - **Store (`store/captions.ts`):** runs the job, shows progress, and adds the captions as title
   clips on a new top track in one undo step (`addCaptions`).
 

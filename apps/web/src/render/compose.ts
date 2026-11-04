@@ -24,6 +24,7 @@ export async function drawItems(
           content: layer.text,
           clipTime: layer.clipTime,
           clipDuration: layer.clipDuration,
+          sourceTime: layer.sourceTime,
         };
       }
       const sample = await readers

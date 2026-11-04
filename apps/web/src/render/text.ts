@@ -1,4 +1,4 @@
-import type { FontFamily, TextContent, TextStyle } from '../engine/types';
+import type { FontFamily, TextContent, TextStyle, WordTiming } from '../engine/types';
 
 /**
  * Text overlay rendering, shared by every compositor and by export, so a title
@@ -90,36 +90,82 @@ export type Measure = (text: string) => number;
  * wider than the line is broken between characters.
  */
 export function wrapLines(text: string, maxWidth: number, measure: Measure): string[] {
-  const lines: string[] = [];
+  return wrapWords(text, maxWidth, measure).map((line) => line.text);
+}
+
+/** Where a word (or the part of one that fits on this line) sits in a line's text. */
+export interface WordPiece {
+  /** Index of the word in the whole text (whitespace-separated, like the engine). */
+  index: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Wrap text into lines that fit `maxWidth`, at spaces and line breaks; a word
+ * too wide on its own is broken. Each line lists its word pieces, so the word
+ * being spoken can be highlighted wherever wrapping put it.
+ */
+export function wrapWords(
+  text: string,
+  maxWidth: number,
+  measure: Measure,
+): { text: string; pieces: WordPiece[] }[] {
+  const lines: { text: string; pieces: WordPiece[] }[] = [];
+  let index = 0;
   for (const paragraph of text.split('\n')) {
     let line = '';
+    let pieces: WordPiece[] = [];
+    const add = (part: string) => {
+      const from = line ? line.length + 1 : 0;
+      line = line ? `${line} ${part}` : part;
+      pieces.push({ index, from, to: from + part.length });
+    };
+    const flush = () => {
+      lines.push({ text: line, pieces });
+      line = '';
+      pieces = [];
+    };
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (measure(candidate) <= maxWidth) {
-        line = candidate;
+      if (measure(line ? `${line} ${word}` : word) <= maxWidth) {
+        add(word);
+        index++;
         continue;
       }
-      if (line) lines.push(line);
+      if (line) flush();
       // The word alone may still be too wide: break it.
       let rest = word;
       while (measure(rest) > maxWidth && rest.length > 1) {
         let cut = rest.length - 1;
         while (cut > 1 && measure(rest.slice(0, cut)) > maxWidth) cut--;
-        lines.push(rest.slice(0, cut));
+        add(rest.slice(0, cut));
+        flush();
         rest = rest.slice(cut);
       }
-      line = rest;
+      add(rest);
+      index++;
     }
-    lines.push(line);
+    flush();
   }
   return lines;
+}
+
+/**
+ * The word being spoken at `sourceTimeUs`: the last one that has started, so
+ * the highlight stays put through pauses. -1 before the first word.
+ */
+export function activeWord(words: readonly WordTiming[] | undefined, sourceTimeUs: number): number {
+  if (!words) return -1;
+  let active = -1;
+  for (let i = 0; i < words.length && words[i]!.start <= sourceTimeUs; i++) active = i;
+  return active;
 }
 
 export interface TextLayout {
   font: string;
   fontPx: number;
   lineHeightPx: number;
-  lines: { text: string; width: number }[];
+  lines: { text: string; width: number; pieces: WordPiece[] }[];
   /** Block bounds in canvas pixels (before animation). */
   left: number;
   top: number;
@@ -141,9 +187,9 @@ export function layoutText(
   const fontPx = (style.size * height) / REFERENCE_HEIGHT;
   const font = cssFont(style, fontPx);
   const measure = measureWith(font);
-  const lines = wrapLines(content.text, width * MAX_WIDTH_FRACTION, measure).map((text) => ({
-    text,
-    width: measure(text),
+  const lines = wrapWords(content.text, width * MAX_WIDTH_FRACTION, measure).map((line) => ({
+    ...line,
+    width: measure(line.text),
   }));
   const lineHeightPx = fontPx * LINE_HEIGHT;
   const blockWidth = Math.max(0, ...lines.map((l) => l.width));
@@ -173,7 +219,11 @@ export function layoutText(
 /** The subset of the 2D canvas API used to draw text (works for OffscreenCanvas too). */
 type Canvas2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-/** Draw a text clip at `clipTimeUs` onto a canvas of the given size. */
+/**
+ * Draw a text clip at `clipTimeUs` onto a canvas of the given size. With word
+ * timings and a highlight colour, the word being spoken at `sourceTimeUs` (the
+ * clip's source time) is drawn in that colour.
+ */
 export function drawText(
   ctx: Canvas2D,
   content: TextContent,
@@ -181,6 +231,7 @@ export function drawText(
   clipDurationUs: number,
   width: number,
   height: number,
+  sourceTimeUs = clipTimeUs,
 ): void {
   const state = animationState(clipTimeUs, clipDurationUs, content.style);
   if (state.opacity <= 0.001) return;
@@ -223,8 +274,33 @@ export function drawText(
   ctx.fillStyle = style.color;
   ctx.textAlign = layout.align;
   ctx.textBaseline = 'middle';
+  const spoken = style.highlight ? activeWord(content.words, sourceTimeUs) : -1;
   layout.lines.forEach((line, i) => {
-    ctx.fillText(line.text, layout.anchorX, layout.top + layout.lineHeightPx * (i + 0.5));
+    const y = layout.top + layout.lineHeightPx * (i + 0.5);
+    const piece = line.pieces.find((p) => p.index === spoken);
+    if (!piece) {
+      ctx.fillText(line.text, layout.anchorX, y);
+      return;
+    }
+    // Draw the line in three parts, left to right, so the spoken word gets its own colour.
+    const start =
+      layout.align === 'left'
+        ? layout.anchorX
+        : layout.align === 'right'
+          ? layout.anchorX - line.width
+          : layout.anchorX - line.width / 2;
+    const before = line.text.slice(0, piece.from);
+    const word = line.text.slice(piece.from, piece.to);
+    const after = line.text.slice(piece.to);
+    const wordX = start + ctx.measureText(before).width;
+    const afterX = start + ctx.measureText(line.text.slice(0, piece.to)).width;
+    ctx.textAlign = 'left';
+    ctx.fillText(before, start, y);
+    ctx.fillText(after, afterX, y);
+    ctx.fillStyle = style.highlight!;
+    ctx.fillText(word, wordX, y);
+    ctx.fillStyle = style.color;
+    ctx.textAlign = layout.align;
   });
   ctx.restore();
 }

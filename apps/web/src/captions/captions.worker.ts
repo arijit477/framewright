@@ -59,7 +59,7 @@ async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
     },
   })) as AutomaticSpeechRecognitionPipeline;
 
-  const phrases: TimedText[] = [];
+  const words: TimedText[] = [];
   const cuts = blockBoundaries(audio, SPEECH_SAMPLE_RATE);
   send({ type: 'progress', stage: 'speech', fraction: 0 });
   for (let b = 0; b + 1 < cuts.length; b++) {
@@ -71,7 +71,7 @@ async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
       continue;
     }
     const output = await transcriber(block, {
-      return_timestamps: true,
+      return_timestamps: 'word',
       chunk_length_s: 30,
       stride_length_s: 5,
       task: 'transcribe',
@@ -80,7 +80,7 @@ async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
     const result = Array.isArray(output) ? output[0]! : output;
     for (const chunk of result.chunks ?? []) {
       const [start, end] = chunk.timestamp;
-      phrases.push({
+      words.push({
         text: chunk.text,
         start: (start ?? 0) + offset,
         end: end === null || end === undefined ? null : end + offset,
@@ -88,7 +88,7 @@ async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
     }
     send({ type: 'progress', stage: 'speech', fraction: cuts[b + 1]! / audio.length });
   }
-  send({ type: 'done', phrases, durationUs });
+  send({ type: 'done', words, durationUs });
 }
 
 /** The project's audible sound, as Whisper wants it: 16 kHz mono. */

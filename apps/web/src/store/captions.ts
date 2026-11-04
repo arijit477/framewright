@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { CaptionJob } from '../captions/client';
 import { CAPTION_MODELS, type CaptionModel, type CaptionStage } from '../captions/protocol';
-import { toCaptions } from '../captions/segments';
+import { captionsFromWords } from '../captions/segments';
 import { flushPendingEdits } from '../lib/pending-edits';
 import { addCaptions, notify, pause, projectForExport, selectClip, useEditor } from './editor';
 
@@ -17,6 +17,8 @@ export interface CaptionsState {
   model: CaptionModel;
   /** ISO 639-1 code, or null to detect it. */
   language: string | null;
+  /** Colour each word as it's spoken. */
+  highlight: boolean;
 }
 
 function loadModel(): CaptionModel {
@@ -36,6 +38,7 @@ export const useCaptions = create<CaptionsState>(() => ({
   error: null,
   model: loadModel(),
   language: null,
+  highlight: true,
 }));
 
 const set = useCaptions.setState;
@@ -49,7 +52,11 @@ export function closeCaptions(): void {
   set({ open: false });
 }
 
-export function setCaptionOptions(options: { model?: CaptionModel; language?: string | null }) {
+export function setCaptionOptions(options: {
+  model?: CaptionModel;
+  language?: string | null;
+  highlight?: boolean;
+}) {
   set(options);
   if (options.model) {
     try {
@@ -83,14 +90,14 @@ export function startCaptions(): void {
     { projectJson, assets, model, language },
     {
       onProgress: (stage, fraction) => set({ stage, fraction }),
-      onDone: (phrases, duration) => {
+      onDone: (words, duration) => {
         job = null;
-        const captions = toCaptions(phrases, duration);
+        const captions = captionsFromWords(words, duration);
         if (captions.length === 0) {
           set({ phase: 'error', error: 'No speech was found in the sound.' });
           return;
         }
-        if (addCaptions(captions) === null) {
+        if (addCaptions(captions, { highlight: get().highlight }) === null) {
           set({ phase: 'error', error: 'The captions couldn’t be added.' });
           return;
         }

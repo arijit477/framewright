@@ -1467,6 +1467,7 @@ mod tests {
         TextContent {
             text: text.into(),
             style: crate::text::TextStyle::default(),
+            words: Vec::new(),
         }
     }
 
@@ -2360,6 +2361,42 @@ mod tests {
         assert_eq!(
             tl.insert_space(&[999], 0, S),
             Err(EditError::TrackNotFound(999))
+        );
+    }
+
+    #[test]
+    fn word_timings_follow_a_caption_through_splits_and_trims() {
+        use crate::text::WordTiming;
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        let words = vec![
+            WordTiming { start: 0, end: S },
+            WordTiming {
+                start: S,
+                end: 2 * S,
+            },
+            WordTiming {
+                start: 2 * S,
+                end: 3 * S,
+            },
+        ];
+        let caption = TextContent {
+            words: words.clone(),
+            ..title("ask not what")
+        };
+        let clip = tl.add_text_clip(track, 10 * S, 3 * S, caption).unwrap();
+        let right = tl.split_clip(clip, 12 * S).unwrap();
+        // Both halves keep the same timings; each layer's source time says where
+        // in them it is, so 12.5 s is still the third word (2-3 s).
+        let layer = &tl.resolve(12 * S + S / 2)[0];
+        assert_eq!(layer.clip_id, right);
+        assert_eq!(layer.source_time, 2 * S + S / 2);
+        assert_eq!(layer.text.as_ref().unwrap().words, words);
+        tl.trim_clip(clip, Edge::Start, 11 * S).unwrap();
+        assert_eq!(
+            tl.resolve(11 * S)[0].source_time,
+            S,
+            "the second word starts here"
         );
     }
 }

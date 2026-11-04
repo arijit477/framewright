@@ -137,11 +137,21 @@ export interface TextStyle {
   animationIn: TextAnimation;
   animationOut: TextAnimation;
   animationMs: number;
+  /** `#rrggbb` for the word being spoken (needs `words`); absent for none. */
+  highlight?: string;
+}
+
+/** When a word is spoken, in the text clip's source time (mirrors `WordTiming`). */
+export interface WordTiming {
+  start: Micros;
+  end: Micros;
 }
 
 export interface TextContent {
   text: string;
   style: TextStyle;
+  /** One timing per whitespace-separated word of `text` (captions); absent for titles. */
+  words?: WordTiming[];
 }
 
 export const TEXT_LIMITS = {

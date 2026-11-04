@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::timeline::Micros;
+
 pub const MAX_TEXT_CHARS: usize = 500;
 pub const MIN_FONT_SIZE: u16 = 12;
 pub const MAX_FONT_SIZE: u16 = 300;
@@ -63,6 +65,9 @@ pub struct TextStyle {
     pub animation_out: TextAnimation,
     /// Length of each animation.
     pub animation_ms: u16,
+    /// `#rrggbb` for the word being spoken (needs word timings); none by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<String>,
 }
 
 impl Default for TextStyle {
@@ -81,6 +86,7 @@ impl Default for TextStyle {
             animation_in: TextAnimation::Fade,
             animation_out: TextAnimation::Fade,
             animation_ms: 400,
+            highlight: None,
         }
     }
 }
@@ -91,6 +97,18 @@ pub struct TextContent {
     pub text: String,
     #[serde(default)]
     pub style: TextStyle,
+    /// When each word is spoken (captions): one entry per whitespace-separated
+    /// word of `text`, in order, in the clip's source time, so trims and splits
+    /// keep them in place. Empty for ordinary titles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<WordTiming>,
+}
+
+/// When a word is spoken, in the text clip's source time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordTiming {
+    pub start: Micros,
+    pub end: Micros,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -107,6 +125,10 @@ pub enum TextError {
     Position,
     #[error("animation length {0} ms is out of range (0-{MAX_ANIMATION_MS} ms)")]
     AnimationMs(u16),
+    #[error("the word timings don't match the text ({0} timings for {1} words)")]
+    WordCount(usize, usize),
+    #[error("word timings must be in order, each ending after it starts")]
+    WordOrder,
 }
 
 impl TextContent {
@@ -136,6 +158,22 @@ impl TextContent {
         if style.animation_ms > MAX_ANIMATION_MS {
             return Err(TextError::AnimationMs(style.animation_ms));
         }
+        if let Some(highlight) = &style.highlight {
+            if !is_hex_color(highlight, false) {
+                return Err(TextError::Color(highlight.clone()));
+            }
+        }
+        if !self.words.is_empty() {
+            let count = self.text.split_whitespace().count();
+            if self.words.len() != count {
+                return Err(TextError::WordCount(self.words.len(), count));
+            }
+            let ordered = self.words.iter().all(|w| w.start >= 0 && w.start <= w.end)
+                && self.words.windows(2).all(|w| w[0].start <= w[1].start);
+            if !ordered {
+                return Err(TextError::WordOrder);
+            }
+        }
         Ok(())
     }
 }
@@ -156,6 +194,7 @@ mod tests {
         TextContent {
             text: text.into(),
             style: TextStyle::default(),
+            words: Vec::new(),
         }
     }
 
@@ -204,5 +243,64 @@ mod tests {
         assert_eq!(parsed.style.color, "#ffffff");
         let bare: TextContent = serde_json::from_str(r#"{"text":"Hi"}"#).unwrap();
         assert_eq!(bare.style, TextStyle::default());
+    }
+
+    #[test]
+    fn word_timings_must_match_the_text() {
+        let words = |pairs: &[(Micros, Micros)]| {
+            pairs
+                .iter()
+                .map(|&(start, end)| WordTiming { start, end })
+                .collect::<Vec<_>>()
+        };
+        let content = |text: &str, timings: Vec<WordTiming>| TextContent {
+            text: text.to_owned(),
+            style: TextStyle {
+                highlight: Some("#facc15".into()),
+                ..TextStyle::default()
+            },
+            words: timings,
+        };
+        assert_eq!(
+            content("ask not\nwhat", words(&[(0, 10), (10, 20), (25, 40)])).validate(),
+            Ok(()),
+            "a line break separates words too"
+        );
+        assert_eq!(
+            content("ask not", words(&[(0, 10)])).validate(),
+            Err(TextError::WordCount(1, 2))
+        );
+        assert_eq!(
+            content("ask not", words(&[(20, 30), (0, 10)])).validate(),
+            Err(TextError::WordOrder)
+        );
+        assert_eq!(
+            content("ask", words(&[(10, 5)])).validate(),
+            Err(TextError::WordOrder)
+        );
+        let bad_colour = TextContent {
+            style: TextStyle {
+                highlight: Some("yellow".into()),
+                ..TextStyle::default()
+            },
+            ..content("ask", vec![])
+        };
+        assert_eq!(
+            bad_colour.validate(),
+            Err(TextError::Color("yellow".into()))
+        );
+    }
+
+    #[test]
+    fn titles_without_word_timings_save_as_before() {
+        let content = TextContent {
+            text: "Hi".into(),
+            style: TextStyle::default(),
+            words: vec![],
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(!json.contains("words") && !json.contains("highlight"));
+        let back: TextContent = serde_json::from_str(r#"{"text":"Hi"}"#).unwrap();
+        assert_eq!(back, content);
     }
 }

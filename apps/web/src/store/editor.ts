@@ -25,6 +25,7 @@ import {
   timelineTimeOf,
 } from '../lib/keyframes';
 import type { Caption } from '../captions/segments';
+import type { CaptionCue } from '../captions/srt';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
 import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
@@ -955,7 +956,10 @@ export function addText(text = 'Your text'): void {
  * step, styled to be readable over any picture (smaller than a title, on a
  * dark box, near the bottom, no fades). Returns the new track's id.
  */
-export function addCaptions(captions: readonly Caption[]): number | null {
+export function addCaptions(
+  captions: readonly Caption[],
+  { highlight = true }: { highlight?: boolean } = {},
+): number | null {
   let trackId: number | null = null;
   const added = edit((e) => {
     const defaults = e.defaultTextStyle();
@@ -966,26 +970,53 @@ export function addCaptions(captions: readonly Caption[]): number | null {
       y: 880,
       animationIn: 'none' as const,
       animationOut: 'none' as const,
+      // Each word turns this colour as it's spoken (and can be changed or removed per caption).
+      ...(highlight ? { highlight: CAPTION_HIGHLIGHT } : {}),
     };
     trackId = e.addTrack('video');
     for (const c of captions) {
-      e.addTextClip(trackId, c.startUs, c.endUs - c.startUs, { text: c.text, style });
+      e.addTextClip(trackId, c.startUs, c.endUs - c.startUs, {
+        text: c.text,
+        style,
+        words: c.words,
+      });
     }
   });
   return added ? trackId : null;
 }
 
+/** The default colour of the word being spoken in a caption. */
+export const CAPTION_HIGHLIGHT = '#facc15';
+
 /** A track's titles as captions (for .srt / .vtt files), in time order. */
-export function trackCaptions(trackId: number): Caption[] {
+export function trackCaptions(trackId: number): CaptionCue[] {
   const track = get().timeline.tracks.find((t) => t.id === trackId);
   return (track?.clips ?? [])
     .filter((c) => c.text)
     .map((c) => ({ text: c.text!.text, startUs: c.start, endUs: clipEnd(c) }));
 }
 
-/** Replace a text clip's content and style (validated by the engine). */
+/**
+ * Replace a text clip's content and style (validated by the engine). Word
+ * timings (from captions) belong to the words they were recognised for: an
+ * edit that keeps the number of words (fixing a misheard word) keeps them; one
+ * that adds or removes words drops them, since there's no honest way to time
+ * the new words.
+ */
 export function updateText(clipId: number, content: TextContent): boolean {
-  return edit((e) => e.setClipText(clipId, content));
+  const words = content.words ?? [];
+  const dropWords = words.length > 0 && countWords(content.text) !== words.length;
+  const next = dropWords ? { ...content, words: [] } : content;
+  const changed = edit((e) => e.setClipText(clipId, next));
+  if (changed && dropWords) {
+    notify('info', 'Word highlighting was removed because the number of words changed.');
+  }
+  return changed;
+}
+
+/** Words as the engine counts them (split on whitespace). */
+export function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 /**

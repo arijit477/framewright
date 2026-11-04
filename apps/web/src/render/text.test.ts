@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { TextContent, TextStyle } from '../engine/types';
-import { animationState, cssColor, cssFont, layoutText, wrapLines } from './text';
+import {
+  activeWord,
+  animationState,
+  cssColor,
+  cssFont,
+  layoutText,
+  wrapLines,
+  wrapWords,
+} from './text';
 
 /** A fake font: every character is 10 px wide at any size. */
 const tenPx = (text: string) => text.length * 10;
@@ -110,5 +118,56 @@ describe('fonts and colours', () => {
   it('converts #rrggbbaa to rgba', () => {
     expect(cssColor('#00000080')).toBe('rgba(0, 0, 0, 0.502)');
     expect(cssColor('#ff8800')).toBe('#ff8800');
+  });
+});
+
+describe('word-aware wrapping', () => {
+  it('records each word piece and its index across lines and paragraphs', () => {
+    // 10 px per character, 60 px lines: "ask not" (70) doesn't fit on one line.
+    expect(wrapWords('ask not\nwhat you', 60, tenPx)).toEqual([
+      { text: 'ask', pieces: [{ index: 0, from: 0, to: 3 }] },
+      { text: 'not', pieces: [{ index: 1, from: 0, to: 3 }] },
+      { text: 'what', pieces: [{ index: 2, from: 0, to: 4 }] },
+      { text: 'you', pieces: [{ index: 3, from: 0, to: 3 }] },
+    ]);
+    expect(wrapWords('ab cd', 100, tenPx)).toEqual([
+      {
+        text: 'ab cd',
+        pieces: [
+          { index: 0, from: 0, to: 2 },
+          { index: 1, from: 3, to: 5 },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps one index for a word broken across lines', () => {
+    const lines = wrapWords('go extraordinarily', 60, tenPx);
+    const pieces = lines.flatMap((l) => l.pieces.map((p) => [p.index, l.text.slice(p.from, p.to)]));
+    expect(pieces[0]).toEqual([0, 'go']);
+    expect(pieces.slice(1).every(([i]) => i === 1)).toBe(true);
+    expect(
+      pieces
+        .slice(1)
+        .map(([, t]) => t)
+        .join(''),
+    ).toBe('extraordinarily');
+  });
+});
+
+describe('activeWord', () => {
+  const words = [
+    { start: 1_000, end: 2_000 },
+    { start: 2_000, end: 3_000 },
+    { start: 5_000, end: 6_000 },
+  ];
+
+  it('is the last word that has started, holding through pauses', () => {
+    expect(activeWord(words, 0)).toBe(-1);
+    expect(activeWord(words, 1_000)).toBe(0);
+    expect(activeWord(words, 2_500)).toBe(1);
+    expect(activeWord(words, 4_000)).toBe(1); // a pause: still the last word
+    expect(activeWord(words, 9_000)).toBe(2);
+    expect(activeWord(undefined, 1_000)).toBe(-1);
   });
 });
