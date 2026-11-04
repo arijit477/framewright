@@ -348,7 +348,8 @@ See [ADR 0019](./adr/0019-luts.md).
   samples a 3D `rgba16float` texture; Canvas 2D runs `lutPixels`. The WebGPU self-test checks a
   LUT plus desaturation.
 - **UI:** in the Color section: pick a project LUT or load a `.cube` file, and set its
-  intensity.
+  intensity. "Manage LUTs" renames them and removes unused ones (LUTs in use can't be removed; a
+  removed LUT comes back if undo or a paste needs it, and the clipboard carries LUTs).
 
 ## Transitions
 

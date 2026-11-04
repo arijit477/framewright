@@ -26,7 +26,8 @@ leaves your machine.
   presets, and dragging clips or titles directly on the preview
 - Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks
   (black & white, warm, cool, moody…), identical in preview and export
-- LUTs: load `.cube` looks (from DaVinci Resolve, Premiere and others), with adjustable intensity
+- LUTs: load `.cube` looks (from DaVinci Resolve, Premiere and others), with adjustable intensity;
+  rename them and remove unused ones
 - Speed: 0.25× to 4× per clip, with the sound's pitch preserved
 - Ripple editing: delete, trim or change speed and the rest of the track moves up (or along)
 - Keyframes: animate a clip's transform (zooms, pans, moving picture-in-picture, fades) with
@@ -48,7 +49,7 @@ leaves your machine.
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy/cut/paste, <kbd>Ctrl/⌘</kbd>+<kbd>D</kbd> duplicate, <kbd>Ctrl/⌘</kbd>+<kbd>A</kbd> select all, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: managing LUTs, editing several clips at once, and local AI auto-captions.
+Coming next: editing several clips at once, and local AI auto-captions.
 
 ## Architecture at a glance
 

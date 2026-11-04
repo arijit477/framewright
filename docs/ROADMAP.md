@@ -54,7 +54,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Filters: brightness, contrast, saturation and one-click looks (all renderers)
 - [x] LUTs: load `.cube` files, per-clip intensity, saved with the project
 - [x] Temperature and tint (white balance), with Warm and Cool looks
-- [ ] Managing (removing) project LUTs; plugin API for effects
+- [x] Managing project LUTs: rename, see usage, remove unused
+- [ ] Plugin API for effects
 - [x] Speed control (0.25×–4×) with audio pitch preservation
 - [ ] Speed ramps, reverse playback
 - [x] Ripple editing: delete, trim and speed changes close or open space on the track
