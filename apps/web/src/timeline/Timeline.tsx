@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { clipEnd, clipSpeed, type Clip, type Track, type TrackKind } from '../engine/types';
 import { PEAKS_PER_SECOND } from '../audio/protocol';
 import { formatTimecode, MICROS_PER_SECOND, rulerStep } from '../lib/time';
@@ -6,6 +6,8 @@ import {
   edit,
   moveClip,
   seek,
+  announce,
+  describeClip,
   moveSelection,
   selectClip,
   setSelection,
@@ -26,7 +28,6 @@ import {
   transitionWindow,
   trimPreview,
   stepClip,
-  trackNames,
   TRACK_PADDING_X,
   type ClipStep,
   clipsInRect,
@@ -130,8 +131,8 @@ export function Timeline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<Drag | null>(null);
-  /** What a screen reader hears after a keyboard move on the timeline. */
-  const [announcement, setAnnouncement] = useState('');
+  /** What a screen reader hears after a keyboard action (set via `announce`). */
+  const announcement = useEditor((s) => s.announcement);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -355,7 +356,7 @@ export function Timeline() {
       if (state.selectedClipIds.length === 0) return;
       event.preventDefault();
       selectClip(null);
-      setAnnouncement('Selection cleared.');
+      announce('Selection cleared.');
       return;
     }
     const step = steps[event.key];
@@ -369,7 +370,7 @@ export function Timeline() {
     const clip = state.timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === target)!;
     seek(clip.start);
     revealTime(clip.start);
-    setAnnouncement(describeSelection(clip));
+    announce(describeSelection(clip));
   };
 
   /** Scroll so timeline time `at` is in view (with a second of context). */
@@ -382,13 +383,10 @@ export function Timeline() {
     }
   };
 
-  /** "red.webm on Video 1, 00:06:00 to 00:09:00", plus the selection size when it's more than one. */
+  /** The clip's description, plus the selection size when it's more than one. */
   const describeSelection = (clip: Clip) => {
-    const { timeline, assets, selectedClipIds } = useEditor.getState();
-    const track = timeline.tracks.find((t) => t.clips.some((c) => c.id === clip.id))!;
-    const name = clip.text ? `text “${clip.text.text}”` : (assets[clip.assetId]?.name ?? 'clip');
-    const where = `${name} on ${trackNames(timeline).get(track.id)}, ${formatTimecode(clip.start)} to ${formatTimecode(clipEnd(clip))}`;
-    const count = selectedClipIds.length;
+    const count = useEditor.getState().selectedClipIds.length;
+    const where = describeClip(clip.id);
     return count > 1 ? `${where}. ${count} clips selected.` : `${where}.`;
   };
 
@@ -424,7 +422,9 @@ export function Timeline() {
       <p id="timeline-keys" className="visually-hidden">
         Left and Right arrows move between clips on a track, Up and Down to the track above or
         below, Home and End to its first and last clip. Shift with Left or Right adds clips to the
-        selection, and Escape clears it.
+        selection, and Escape clears it. Alt with Left or Right moves the selection by a frame (with
+        Shift, ten), and Alt with Up or Down moves a clip to another track. Comma and full stop step
+        the playhead; the left and right square brackets trim the selected clip to it.
       </p>
       {/* A live region without the "status" role: the app's notifications use that one. */}
       <div

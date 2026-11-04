@@ -24,7 +24,6 @@ test.describe('managing LUTs', () => {
   });
 
   const lutSelect = () => editor.page.getByLabel('LUT', { exact: true });
-  const options = () => lutSelect().locator('option').allInnerTexts();
   const dialog = () => editor.page.getByRole('dialog', { name: 'LUTs in this project' });
   const manage = async () => {
     await editor.page.getByRole('button', { name: 'Manage LUTs…' }).click();
@@ -43,7 +42,7 @@ test.describe('managing LUTs', () => {
     await dialog().getByRole('button', { name: 'Remove Swap' }).click();
     await expect(dialog().getByText('No LUTs yet')).toBeVisible();
     await done();
-    expect(await options()).toEqual(['None']);
+    await expect(lutSelect().locator('option')).toHaveText(['None']);
 
     // Undoing "None" puts the LUT back on the clip, and back in the project.
     await editor.press('Control+z');
@@ -67,16 +66,16 @@ test.describe('managing LUTs', () => {
 
   test('"Remove unused" keeps only the LUTs clips use, also after a reload', async () => {
     await editor.page.getByLabel('LUT file').setInputFiles(PLAIN); // replaces Swap on the clip
-    expect(await options()).toEqual(['None', 'Plain', 'Swap']);
+    await expect(lutSelect().locator('option')).toHaveText(['None', 'Plain', 'Swap']);
     await manage();
     await dialog().getByRole('button', { name: 'Remove unused (1)' }).click();
     await expect(dialog().getByRole('listitem')).toHaveCount(1);
     await done();
-    expect(await options()).toEqual(['None', 'Plain']);
+    await expect(lutSelect().locator('option')).toHaveText(['None', 'Plain']);
     await editor.waitSaved();
     await editor.reload();
     await editor.clickClip(0, 1.5);
-    expect(await options()).toEqual(['None', 'Plain']);
+    await expect(lutSelect().locator('option')).toHaveText(['None', 'Plain']);
   });
 
   test('copied clips bring their LUT along, even after it was removed and the project reopened', async () => {
