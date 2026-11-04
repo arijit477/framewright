@@ -34,8 +34,10 @@ by hand. Editors solve this with ripple edits (a "magnetic" timeline).
 - With ripple on, overlays on other tracks can drift out of sync with the footage they belong
   to. Moving linked clips together (sync-lock), closing a selected gap, and ripple _moves_ are
   follow-ups.
-- Adding the toggle pushed the toolbar to two rows at 1280 px, so the sliders and level meter are
-  narrower, and an e2e test now guards the one-row layout.
+- Adding the toggle pushed the toolbar to two rows. The new layout test first passed here and
+  failed on CI, whose fonts are wider. Instead of squeezing the toolbar, the per-clip settings
+  (speed, volume, mute) moved to the clip panel, which now also appears for audio-only clips. The
+  toolbar keeps project and timeline tools only, with ~290 px of slack at 1280 px.
 
 ## Alternatives considered
 

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { formatTimecode } from '../lib/time';
-import { ClipAudio, LevelMeter } from './ClipAudio';
+import { LevelMeter } from './LevelMeter';
 import {
   addText,
   deleteSelected,
@@ -69,8 +69,6 @@ export function Toolbar() {
           {formatTimecode(playhead)} <span className="muted">/ {formatTimecode(duration)}</span>
         </span>
       </div>
-
-      <ClipAudio />
 
       <div className="group">
         <button onClick={splitAtPlayhead} disabled={duration === 0} title="Split at playhead (S)">

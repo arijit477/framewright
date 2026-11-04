@@ -284,7 +284,8 @@ See [ADR 0016](./adr/0016-speed-control.md).
   splits and the audio extensions under transitions.
 - **Audio:** segments carry `speed`. `SourceStream` time-stretches with WSOLA
   (`audio/time-stretch.ts`) so the pitch is kept, in both playback and export.
-- **UI:** a Speed menu beside the clip's volume. The timeline label and track list show the speed.
+- **UI:** a Speed menu in the clip panel's Clip section (with volume and mute). The timeline label
+  and track list show the speed.
 
 ## Keyframes
 

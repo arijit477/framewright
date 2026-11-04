@@ -17,13 +17,31 @@ test.describe('editing', () => {
   });
 
   test('the toolbar fits on one row at 1280 px, even with a clip selected', async () => {
-    await editor.clickClip(0, 3); // shows the clip's speed and volume controls too
+    // Fonts differ between systems (CI's are wider), so the toolbar keeps plenty of slack:
+    // per-clip settings live in the clip panel, not here.
+    await editor.clickClip(0, 3);
     const toolbar = editor.page.locator('.toolbar');
     const buttonHeight = await toolbar
       .getByRole('button', { name: 'Import' })
       .evaluate((el) => el.getBoundingClientRect().height);
     const height = await toolbar.evaluate((el) => el.getBoundingClientRect().height);
     expect(height).toBeLessThan(buttonHeight * 2); // a second row would double it
+    // And the clip's settings are in the clip panel.
+    const panel = editor.page.getByRole('complementary', { name: 'Clip settings' });
+    await expect(panel.getByRole('combobox', { name: 'Speed', exact: true })).toBeVisible();
+    await expect(panel.getByRole('slider', { name: 'Volume' })).toBeVisible();
+  });
+
+  test('audio-only clips get the clip panel too, without transform or colour', async () => {
+    await editor.clickClip(1, 1); // the WAV on the audio track
+    const panel = editor.page.getByRole('complementary', { name: 'Clip settings' });
+    await expect(panel.getByRole('button', { name: 'Mute' })).toBeVisible();
+    await expect(panel.getByRole('region', { name: 'Transform' })).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Mute' }).click();
+    await expect(panel.getByRole('button', { name: 'Unmute' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   test('split, delete and undo', async () => {
