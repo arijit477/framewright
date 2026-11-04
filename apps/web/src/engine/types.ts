@@ -139,6 +139,18 @@ export interface AudioSegment {
   sourceIn: Micros;
   /** Linear gain (1 = unchanged). */
   gain: number;
+  /** Fade from silence, under a transition into this clip. */
+  fadeIn?: AudioFade;
+  /** Fade to silence, under a transition out of this clip. */
+  fadeOut?: AudioFade;
+}
+
+/** A gain ramp between two timeline times. */
+export interface AudioFade {
+  start: Micros;
+  end: Micros;
+  /** Equal power keeps loudness steady through a crossfade; linear suits dips. */
+  curve: 'linear' | 'equalPower';
 }
 
 export const MAX_VOLUME_PERCENT = 200;

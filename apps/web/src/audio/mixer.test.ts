@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioSegment } from '../engine/types';
 import { Mixer, type AudioStream } from './mixer';
+import type { Gain } from './resampler';
 
 const RATE = 1000; // 1 frame = 1 ms, so the maths is easy to read
 const ms = (n: number) => n * 1000; // ms -> µs
@@ -12,10 +13,11 @@ class ConstantStream implements AudioStream {
     readonly value: number,
     readonly startSeconds: number,
   ) {}
-  async mixInto(l: Float32Array, r: Float32Array, offset: number, frames: number, gain: number) {
+  async mixInto(l: Float32Array, r: Float32Array, offset: number, frames: number, gain: Gain) {
     for (let i = 0; i < frames; i++) {
-      l[offset + i]! += this.value * gain;
-      r[offset + i]! += this.value * gain;
+      const g = typeof gain === 'number' ? gain : gain[i]!;
+      l[offset + i]! += this.value * g;
+      r[offset + i]! += this.value * g;
     }
   }
   async dispose() {
@@ -120,5 +122,51 @@ describe('Mixer', () => {
     release();
     expect(await pending).toBe(false);
     expect(mixer.positionUs).toBe(ms(500));
+  });
+
+  it('ramps gain per frame through a fade', async () => {
+    const { mixer } = setup([
+      segment({ clipId: 1, fadeIn: { start: 0, end: ms(10), curve: 'linear' } }),
+    ]);
+    await mixer.next();
+    // Frame i sits at i ms, so a 10 ms linear ramp gives i / 10.
+    expect([...mixer.left].map((v) => Math.round(v * 10) / 10)).toEqual([
+      0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+    ]);
+  });
+
+  it('keeps an equal-power crossfade at constant power', async () => {
+    const fade = { start: 0, end: ms(10), curve: 'equalPower' as const };
+    const { mixer } = setup([
+      segment({ clipId: 1, gain: 0.5, fadeOut: fade }),
+      segment({ clipId: 2, assetId: 'b', fadeIn: fade }),
+    ]);
+    await mixer.next();
+    // Not a real power sum (the fakes are correlated), so check each side's curve instead.
+    const out = Math.cos(Math.PI / 4) * 0.5;
+    const into = Math.sin(Math.PI / 4);
+    expect(mixer.left[5]).toBeCloseTo(out + into);
+  });
+
+  it('uses one gain once a fade is over', async () => {
+    const seen: Gain[] = [];
+    const recording: AudioStream = {
+      mixInto: async (_l, _r, _o, _f, gain) => void seen.push(gain),
+      dispose: async () => {},
+    };
+    const mixer = new Mixer(() => recording, RATE, 10);
+    mixer.setSegments([
+      segment({
+        clipId: 1,
+        duration: ms(30),
+        gain: 0.5,
+        fadeIn: { start: 0, end: ms(10), curve: 'linear' },
+      }),
+    ]);
+    mixer.seek(0);
+    await mixer.next();
+    await mixer.next();
+    expect(seen[0]).toBeInstanceOf(Float32Array);
+    expect(seen[1]).toBe(0.5);
   });
 });

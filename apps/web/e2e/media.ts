@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '.fixtures');
 
-export const FIXTURES = { video: 'tone.webm', audio: 'music.wav', overlay: 'red.webm' } as const;
+export const FIXTURES = {
+  video: 'tone.webm',
+  audio: 'music.wav',
+  overlay: 'red.webm',
+  beep: 'beep.webm',
+} as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 
 export interface ProbeResult {
@@ -57,6 +62,33 @@ export function peakDb(path: string): number {
   const match = /max_volume: (-?[\d.]+) dB/.exec(log);
   if (!match) throw new Error(`No audio level found in ${path}`);
   return Number(match[1]);
+}
+
+/**
+ * Peak level in dBFS of one frequency over `[from, from + duration)` seconds,
+ * to tell overlapping test tones apart. Four cascaded band-passes keep an
+ * octave-away tone at least ~23 dB down (measured).
+ */
+export function toneDb(path: string, hz: number, from: number, duration: number): number {
+  const band = `bandpass=f=${hz}:width_type=q:w=4`;
+  const filter = `${band},${band},${band},${band},volumedetect`;
+  const log = ffmpegLog([
+    '-ss',
+    String(from),
+    '-t',
+    String(duration),
+    '-i',
+    path,
+    '-vn',
+    '-af',
+    filter,
+    '-f',
+    'null',
+    '-',
+  ]);
+  const match = /max_volume: (-?[\d.]+|-inf) dB/.exec(log);
+  if (!match) throw new Error(`No audio level found in ${path}`);
+  return match[1] === '-inf' ? -Infinity : Number(match[1]);
 }
 
 /** Errors reported by ffmpeg while fully decoding the file (empty = clean). */

@@ -22,7 +22,7 @@ transition to stay attached when they trim or move clips, and not to need specia
 - The engine resolves the two layers and the progress. A single tested function maps that to
   per-layer effects (opacity, offset, reveal), which both compositors apply on top of the
   existing placement matrix (ADR 0011).
-- Video only for now; audio still cuts.
+- Video only at first; audio crossfades followed in ADR 0013.
 
 ## Consequences
 
@@ -30,7 +30,7 @@ transition to stay attached when they trim or move clips, and not to need specia
 - Transitions work identically in the preview, both renderers and export.
 - "Dip" fades through whatever is underneath (black on the bottom track), which is what an
   upper-track dip should do.
-- Audio crossfades need a matching change in the mixer (roadmap).
+- Audio crossfades need a matching change in the mixer (done in ADR 0013).
 
 ## Alternatives considered
 

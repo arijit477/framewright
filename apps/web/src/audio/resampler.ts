@@ -1,3 +1,6 @@
+/** One gain for every frame, or one gain per frame. */
+export type Gain = number | Float32Array;
+
 /**
  * Streaming stereo resampler with linear interpolation.
  *
@@ -55,24 +58,26 @@ export class Resampler {
   /**
    * Mix `frames` resampled frames into `outLeft`/`outRight` starting at
    * `offset`, multiplied by `gain` (added, not overwritten, so several
-   * sources can share one output buffer).
+   * sources can share one output buffer). `gain` is either one value or a
+   * gain per output frame (`gain[i]` applies to frame `offset + i`).
    */
   mixInto(
     outLeft: Float32Array,
     outRight: Float32Array,
     offset: number,
     frames: number,
-    gain: number,
+    gain: Gain,
   ): void {
+    const scalar = typeof gain === 'number' ? gain : 0;
     for (let i = 0; i < frames; i++) {
+      const g = typeof gain === 'number' ? scalar : gain[i]!;
       const pos = this.position + i * this.ratio;
       const i0 = Math.floor(pos);
       if (i0 >= this.length) break; // out of data: silence
       const i1 = Math.min(i0 + 1, this.length - 1);
       const frac = pos - i0;
-      outLeft[offset + i]! += (this.left[i0]! + (this.left[i1]! - this.left[i0]!) * frac) * gain;
-      outRight[offset + i]! +=
-        (this.right[i0]! + (this.right[i1]! - this.right[i0]!) * frac) * gain;
+      outLeft[offset + i]! += (this.left[i0]! + (this.left[i1]! - this.left[i0]!) * frac) * g;
+      outRight[offset + i]! += (this.right[i0]! + (this.right[i1]! - this.right[i0]!) * frac) * g;
     }
     this.position += frames * this.ratio;
   }

@@ -24,7 +24,8 @@ leaves your machine.
   position and fade/slide/pop animations, rendered identically in preview and export
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
-- Transitions between clips: crossfade, dip, slide and wipe, with adjustable length
+- Transitions between clips: crossfade, dip, slide and wipe, with adjustable length; the
+  sound crossfades along with the picture
 - Multiple video and audio tracks: drag a clip above the top track for a new layer (B-roll,
   cutaways); higher tracks cover lower ones
 - Frame-accurate preview, rendered off the main thread
@@ -38,8 +39,7 @@ leaves your machine.
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: multiple tracks, thumbnails, text, transitions, and local
-AI auto-captions.
+Coming next: keyframes, filters, speed control, and local AI auto-captions.
 
 ## Architecture at a glance
 

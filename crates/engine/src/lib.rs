@@ -15,5 +15,6 @@ pub mod transition;
 pub mod wasm;
 
 pub use timeline::{
-    AudioSegment, Clip, Edge, EditError, Layer, Micros, Timeline, Track, TrackKind,
+    AudioFade, AudioSegment, Clip, Edge, EditError, FadeCurve, Layer, Micros, Timeline, Track,
+    TrackKind,
 };
