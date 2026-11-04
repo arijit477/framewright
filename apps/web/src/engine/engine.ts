@@ -5,6 +5,7 @@ import type {
   CopiedClip,
   Easing,
   Layer,
+  LutRef,
   Micros,
   TextContent,
   TextStyle,
@@ -104,6 +105,11 @@ export class TimelineEngine {
 
   setClipColor(clipId: number, color: ColorAdjust): void {
     this.inner.setClipColor(clipId, color);
+  }
+
+  /** Apply a project LUT to a media clip, or remove it with `null`. */
+  setClipLut(clipId: number, lut: LutRef | null): void {
+    this.inner.setClipLut(clipId, lut);
   }
 
   /** Add or update the keyframe at `sourceTime` (in the clip's media). */

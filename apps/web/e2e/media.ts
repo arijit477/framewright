@@ -11,6 +11,7 @@ export const FIXTURES = {
   overlay: 'red.webm',
   beep: 'beep.webm',
   steps: 'steps.wav',
+  lut: 'swap.cube',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 

@@ -7,7 +7,7 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::color::ColorAdjust;
+use crate::color::{ColorAdjust, LutRef};
 use crate::keyframe::Easing;
 use crate::text::{TextContent, TextStyle};
 use crate::timeline::{CopiedClip, Edge, EditError, Micros, Timeline, TrackKind};
@@ -240,6 +240,13 @@ impl Engine {
     pub fn set_clip_color(&mut self, clip_id: u32, color: JsValue) -> Result<(), JsError> {
         let color: ColorAdjust = serde_wasm_bindgen::from_value(color)?;
         self.timeline.set_clip_color(clip_id, color).map_err(err)
+    }
+
+    /// Apply `{ lutId, intensityPercent }` to a media clip, or remove its LUT with `null`.
+    #[wasm_bindgen(js_name = setClipLut)]
+    pub fn set_clip_lut(&mut self, clip_id: u32, lut: JsValue) -> Result<(), JsError> {
+        let lut: Option<LutRef> = serde_wasm_bindgen::from_value(lut)?;
+        self.timeline.set_clip_lut(clip_id, lut).map_err(err)
     }
 
     /// Add or update the keyframe at `source_time` (µs in the clip's media).

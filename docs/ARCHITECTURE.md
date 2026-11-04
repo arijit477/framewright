@@ -330,6 +330,22 @@ See [ADR 0015](./adr/0015-colour-adjustments.md).
   desaturated pixel.
 - **UI:** a Color section in the clip panel with three sliders and one-click looks.
 
+## LUTs
+
+See [ADR 0019](./adr/0019-luts.md).
+
+- **Data:** `.cube` files are parsed in `render/lut.ts` and stored in the project document
+  (`luts`, format version 2) at 16-bit precision, outside the timeline (undo snapshots stay
+  small). The editor store sends them, decoded, to the render worker, and an export sends the
+  ones its clips use.
+- **Clips:** `lut: { lutId, intensityPercent }` (engine `LutRef`), applied before the colour
+  adjustments.
+- **Rendering:** trilinear interpolation everywhere (`applyLutRgb` is the reference). WebGPU
+  samples a 3D `rgba16float` texture; Canvas 2D runs `lutPixels`. The WebGPU self-test checks a
+  LUT plus desaturation.
+- **UI:** in the Color section: pick a project LUT or load a `.cube` file, and set its
+  intensity.
+
 ## Transitions
 
 See [ADR 0012](./adr/0012-transitions.md).

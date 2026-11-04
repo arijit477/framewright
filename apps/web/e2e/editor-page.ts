@@ -50,7 +50,8 @@ export class EditorPage {
    * is already gone, so later imports would return before they finished.)
    */
   async importFixtures(...names: string[]) {
-    await this.page.setInputFiles('input[type=file]', names.map(fixture));
+    // By label: the page has other file inputs (backups, LUTs, relinking).
+    await this.page.getByLabel('Media files to import').setInputFiles(names.map(fixture));
     const tracks = this.page.getByRole('list', { name: 'Timeline tracks' });
     for (const name of names) await expect(tracks).toContainText(name, { timeout: 15_000 });
   }

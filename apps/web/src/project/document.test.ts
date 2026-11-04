@@ -13,6 +13,7 @@ import {
   type ProjectAsset,
   type ProjectDocument,
 } from './document';
+import { encodeLut, makeLut } from '../render/lut';
 
 const NOW = new Date('2026-11-03T12:00:00.000Z');
 
@@ -121,5 +122,34 @@ describe('uniqueName', () => {
   it('stays within the length limit', () => {
     const long = 'x'.repeat(100);
     expect(uniqueName(long, [long])).toHaveLength(100);
+  });
+});
+
+describe('LUTs (version 2)', () => {
+  const lut = { id: 'l1', name: 'Teal', size: 2, data: encodeLut(makeLut(2)) };
+
+  it('round-trips LUTs', () => {
+    const doc = project({ luts: [lut] });
+    expect(parseProject(serializeProject(doc)).luts).toEqual([lut]);
+  });
+
+  it('migrates version 1 projects, which had no LUTs', () => {
+    const { luts: _luts, ...v1 } = { ...project(), version: 1 };
+    const migrated = parseProject(JSON.stringify(v1));
+    expect(migrated.version).toBe(PROJECT_VERSION);
+    expect(migrated.luts).toEqual([]);
+    expect(migrated.assets).toEqual([asset]);
+  });
+
+  it('rejects damaged or duplicate LUTs', () => {
+    const bad = (luts: unknown[]) => () => parseProject(JSON.stringify({ ...project(), luts }));
+    expect(bad([{ ...lut, size: 1 }])).toThrow(ProjectFormatError);
+    expect(bad([{ ...lut, size: 66 }])).toThrow(ProjectFormatError);
+    expect(bad([{ ...lut, data: lut.data.slice(4) }])).toThrow(/LUT 1 is invalid/);
+    expect(bad([{ ...lut, id: '' }])).toThrow(ProjectFormatError);
+    expect(bad([lut, lut])).toThrow(/LUT twice/);
+    expect(() => parseProject(JSON.stringify({ ...project(), luts: undefined }))).toThrow(
+      /invalid "luts"/,
+    );
   });
 });

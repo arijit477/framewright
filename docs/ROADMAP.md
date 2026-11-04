@@ -52,7 +52,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Transitions: crossfade, dip, slide, wipe (centred on the cut, both renderers)
 - [x] Audio crossfades under video transitions (equal power; dips fade to the cut)
 - [x] Filters: brightness, contrast, saturation and one-click looks (all renderers)
-- [ ] LUTs, temperature/tint; plugin API for effects
+- [x] LUTs: load `.cube` files, per-clip intensity, saved with the project
+- [ ] Temperature/tint; managing (removing) project LUTs; plugin API for effects
 - [x] Speed control (0.25×–4×) with audio pitch preservation
 - [ ] Speed ramps, reverse playback
 - [x] Ripple editing: delete, trim and speed changes close or open space on the track

@@ -11,6 +11,7 @@ import { openAsset, toMicros } from '../media/asset';
 import { drawItems } from './compose';
 import { createCompositor, type Compositor } from './compositor';
 import { FrameReader } from './frame-reader';
+import type { Lut } from './lut';
 import { ReaderPool } from './reader-pool';
 import { COMPOSITION, type FromWorker, type ToWorker } from './protocol';
 
@@ -28,6 +29,7 @@ const readers = new ReaderPool((assetId) => {
   const track = videoTracks.get(assetId);
   return track ? new FrameReader(new VideoSampleSink(track)) : null;
 });
+const luts = new Map<string, Lut>();
 let pending: { requestId: number; layers: Layer[] } | null = null;
 let rendering = false;
 
@@ -43,6 +45,11 @@ scope.onmessage = (event) => {
     case 'clearAssets':
       videoTracks.clear();
       void readers.clear();
+      break;
+    case 'setLuts':
+      luts.clear();
+      for (const { id, size, data } of message.luts) luts.set(id, { size, data });
+      void drain(); // redraw with the new LUTs
       break;
     case 'render':
       pending = { requestId: message.requestId, layers: message.layers };
@@ -102,7 +109,7 @@ async function drain() {
       const { requestId, layers } = pending;
       pending = null;
       const started = performance.now();
-      compositor.draw(await drawItems(layers, readers));
+      compositor.draw(await drawItems(layers, readers, luts));
       send({ type: 'rendered', requestId, ms: performance.now() - started });
     }
   } catch (error) {

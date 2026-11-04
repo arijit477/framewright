@@ -71,7 +71,7 @@ export async function startExport() {
   flushPendingEdits(); // include a change made a moment ago (e.g. a slider still focused)
   pause();
   const { settings } = get();
-  const { projectJson, assets, baseName } = projectForExport();
+  const { projectJson, assets, luts, baseName } = projectForExport();
   const fileName = exportFileName(baseName, settings);
 
   const destination = await chooseDestination(fileName, settings.format);
@@ -81,7 +81,7 @@ export async function startExport() {
   void removeStoredExports(); // leftovers from earlier exports
   set({ phase: 'running', progress: { framesDone: 0, totalFrames: 0, elapsedMs: 0 } });
 
-  job = new ExportJob(projectJson, assets, settings, destination, {
+  job = new ExportJob(projectJson, assets, luts, settings, destination, {
     onProgress: (progress) => set({ progress }),
     onDone: ({ output, ...info }) => {
       job = null;

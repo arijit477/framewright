@@ -42,6 +42,7 @@ export function Toolbar() {
           accept="video/*,audio/*,.mkv,.mov,.m4a,.flac"
           multiple
           hidden
+          aria-label="Media files to import"
           onChange={(e) => {
             if (e.target.files) void importFiles(e.target.files);
             e.target.value = '';

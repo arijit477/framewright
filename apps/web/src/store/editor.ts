@@ -8,6 +8,7 @@ import {
   type ColorAdjust,
   type CopiedClip,
   type Easing,
+  type LutRef,
   type Micros,
   type TextContent,
   type TimelineSnapshot,
@@ -26,7 +27,9 @@ import {
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
-import type { ProjectAsset } from '../project/document';
+import type { ProjectAsset, ProjectLut } from '../project/document';
+import { decodeLut, encodeLut, parseCube, type Lut } from '../render/lut';
+import type { LutData } from '../render/protocol';
 import type { RendererBackend } from '../render/protocol';
 import { trackRows, type View } from '../timeline/geometry';
 
@@ -53,6 +56,8 @@ export interface EditorState {
   selectedClipId: number | null;
   /** Every selected clip (Ctrl/⌘/Shift-click adds and removes; Ctrl/⌘+A selects all). */
   selectedClipIds: number[];
+  /** LUTs imported into the project, by id (saved with it; clips refer to them). */
+  luts: Record<string, ProjectLut>;
   view: View;
   importing: number;
   message: { kind: 'error' | 'info'; text: string } | null;
@@ -91,6 +96,7 @@ export const useEditor = create<EditorState>(() => ({
   playing: false,
   selectedClipId: null,
   selectedClipIds: [],
+  luts: {},
   ripple: loadRipple(),
   view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   importing: 0,
@@ -326,7 +332,65 @@ export async function relinkAsset(id: string, file: File): Promise<boolean> {
 export function snapshotProject() {
   const e = requireEngine();
   const assets = Object.values(get().assets).map(({ missing: _missing, ...asset }) => asset);
-  return { timeline: JSON.parse(e.save()) as unknown, durationUs: e.duration(), assets };
+  const luts = Object.values(get().luts);
+  return { timeline: JSON.parse(e.save()) as unknown, durationUs: e.duration(), assets, luts };
+}
+
+// ---------------------------------------------------------------- LUTs
+
+/** Decoded LUTs (the project keeps them encoded), by id. */
+const decodedLuts = new Map<string, Lut>();
+
+/** Decoded LUTs for the given ids (all of them by default), for the workers. */
+function lutsFor(ids: Iterable<string> = decodedLuts.keys()): LutData[] {
+  return [...new Set(ids)].flatMap((id) => {
+    const lut = decodedLuts.get(id);
+    return lut ? [{ id, ...lut }] : [];
+  });
+}
+
+/** Replace the project's LUTs (on load); damaged ones are left out with a notice. */
+function setProjectLuts(luts: readonly ProjectLut[]) {
+  decodedLuts.clear();
+  const kept: Record<string, ProjectLut> = {};
+  for (const lut of luts) {
+    try {
+      decodedLuts.set(lut.id, decodeLut(lut.size, lut.data));
+      kept[lut.id] = lut;
+    } catch {
+      notify('error', `The LUT "${lut.name}" is damaged and was left out.`);
+    }
+  }
+  set({ luts: kept });
+  renderer.setLuts(lutsFor());
+}
+
+/**
+ * Import a `.cube` file into the project. Returns its id, or null (with a
+ * message) if the file can't be read. Saved with the project; not an undo step.
+ */
+export async function importLut(file: File): Promise<string | null> {
+  let parsed: ReturnType<typeof parseCube>;
+  try {
+    parsed = parseCube(await file.text());
+  } catch (error) {
+    notify('error', `Couldn’t use ${file.name}: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+  const id = crypto.randomUUID();
+  const name = parsed.title ?? file.name.replace(/\.cube$/i, '');
+  // Store at 16-bit precision, and render from exactly what was stored.
+  const data = encodeLut(parsed.lut);
+  decodedLuts.set(id, decodeLut(parsed.lut.size, data));
+  set((s) => ({ luts: { ...s.luts, [id]: { id, name, size: parsed.lut.size, data } } }));
+  renderer.setLuts(lutsFor());
+  emit({ type: 'changed' });
+  return id;
+}
+
+/** Apply a project LUT to a clip (or remove it with null). One undo step. */
+export function setClipLut(clipId: number, lut: LutRef | null): boolean {
+  return edit((e) => e.setClipLut(clipId, lut));
 }
 
 /**
@@ -337,6 +401,7 @@ export function snapshotProject() {
 export async function loadProject(project: {
   timeline: unknown;
   assets: ProjectAsset[];
+  luts: readonly ProjectLut[];
   files: ReadonlyMap<string, File>;
 }): Promise<void> {
   const e = requireEngine();
@@ -371,6 +436,7 @@ export async function loadProject(project: {
     selectedClipIds: [],
     view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   });
+  setProjectLuts(project.luts);
   refresh();
 
   // Re-open the media in the workers.
@@ -413,7 +479,10 @@ export function projectForExport() {
     .timeline.tracks.flatMap((t) => t.clips)
     .find((c) => get().assets[c.assetId]);
   const baseName = (firstMedia && get().assets[firstMedia.assetId]?.name) ?? 'framewright-export';
-  return { projectJson: e.save(), assets, baseName, durationUs: e.duration(), missing };
+  const luts = lutsFor(
+    get().timeline.tracks.flatMap((t) => t.clips.flatMap((c) => (c.lut ? [c.lut.lutId] : []))),
+  );
+  return { projectJson: e.save(), assets, luts, baseName, durationUs: e.duration(), missing };
 }
 
 // ---------------------------------------------------------------- playback
