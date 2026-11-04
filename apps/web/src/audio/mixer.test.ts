@@ -12,6 +12,7 @@ class ConstantStream implements AudioStream {
   constructor(
     readonly value: number,
     readonly startSeconds: number,
+    readonly speed = 1,
   ) {}
   async mixInto(l: Float32Array, r: Float32Array, offset: number, frames: number, gain: Gain) {
     for (let i = 0; i < frames; i++) {
@@ -28,10 +29,10 @@ class ConstantStream implements AudioStream {
 function setup(segments: AudioSegment[], values: Record<string, number> = { a: 1, b: 1 }) {
   const opened: ConstantStream[] = [];
   const mixer = new Mixer(
-    (assetId, startSeconds) => {
+    (assetId, startSeconds, speed) => {
       const value = values[assetId];
       if (value === undefined) return null;
-      const stream = new ConstantStream(value, startSeconds);
+      const stream = new ConstantStream(value, startSeconds, speed);
       opened.push(stream);
       return stream;
     },
@@ -48,6 +49,7 @@ const segment = (s: Partial<AudioSegment> & Pick<AudioSegment, 'clipId'>): Audio
   start: 0,
   duration: ms(10),
   sourceIn: 0,
+  speed: 1,
   gain: 1,
   ...s,
 });
@@ -87,6 +89,17 @@ describe('Mixer', () => {
     // 12 ms on the timeline is 10 ms into the clip, which starts 100 ms into the source.
     expect(opened.at(-1)!.startSeconds).toBeCloseTo(0.11);
     expect(mixer.positionUs).toBe(ms(22));
+  });
+
+  it('opens sped-up clips at the right source time and speed', async () => {
+    const { mixer, opened } = setup([
+      segment({ clipId: 1, start: ms(2), sourceIn: ms(100), duration: ms(50), speed: 2 }),
+    ]);
+    mixer.seek(ms(12));
+    await mixer.next();
+    // 10 ms into the clip at 2x is 20 ms into its media.
+    expect(opened.at(-1)!.startSeconds).toBeCloseTo(0.12);
+    expect(opened.at(-1)!.speed).toBe(2);
   });
 
   it('releases decoders once a clip is no longer audible', async () => {

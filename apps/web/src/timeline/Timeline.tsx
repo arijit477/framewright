@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { clipEnd, type Clip, type Track, type TrackKind } from '../engine/types';
+import { clipEnd, clipSpeed, type Clip, type Track, type TrackKind } from '../engine/types';
 import { PEAKS_PER_SECOND } from '../audio/protocol';
 import { formatTimecode, MICROS_PER_SECOND, rulerStep } from '../lib/time';
 import {
@@ -396,7 +396,8 @@ function drawClip(
   ctx.fill();
   // Source time follows the clip while it is being dragged.
   const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
-  const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin);
+  const speed = clipSpeed(clip);
+  const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin) * speed;
   const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
   const filmstrip = strip !== undefined && strip.loaded > 0;
   if (filmstrip) {
@@ -427,7 +428,7 @@ function drawClip(
       top: filmstrip ? top + TRACK_HEIGHT - 19 : top + 26,
       height: filmstrip ? 14 : TRACK_HEIGHT - 32,
       view,
-      sourceAt: (t) => clip.sourceIn + (t - origin),
+      sourceAt: (t) => clip.sourceIn + (t - origin) * speed,
       gain: clip.volumePercent / 100,
       muted: clip.muted,
     });
@@ -442,6 +443,7 @@ function drawClip(
       : clip.volumePercent !== 100
         ? `  ·  ${clip.volumePercent}%`
         : '';
+  const speedLabel = speed !== 1 ? `  ·  ${speed}×` : '';
   // Duration on the right (if there's room), then the label in the space left of it.
   const durationText = formatTimecode(end - start);
   ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -462,13 +464,17 @@ function drawClip(
     ctx.clip(); // never run into the duration
     ctx.fillStyle = COLORS.clipText;
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`${clipLabel(clip, assets[clip.assetId]?.name)}${status}`, labelLeft, top + 15);
+    ctx.fillText(
+      `${clipLabel(clip, assets[clip.assetId]?.name)}${speedLabel}${status}`,
+      labelLeft,
+      top + 15,
+    );
     ctx.restore();
   }
   ctx.restore();
   // Keyframes, as diamonds along the bottom edge (only those inside the clip as drawn).
   for (const key of clip.keyframes ?? []) {
-    const at = origin + (key.sourceTime - clip.sourceIn);
+    const at = origin + (key.sourceTime - clip.sourceIn) / speed;
     if (at < start || at > end) continue;
     drawKeyframe(ctx, timeToX(at, view), top + TRACK_HEIGHT - 9, ghost);
   }

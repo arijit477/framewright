@@ -53,6 +53,10 @@ pub struct Clip {
     pub volume_percent: u16,
     #[serde(default)]
     pub muted: bool,
+    /// Playback speed in percent (100 = normal, 25-400). `duration` is the
+    /// length on the timeline; it covers `duration × speed` of source media.
+    #[serde(default = "default_speed", skip_serializing_if = "is_normal_speed")]
+    pub speed_percent: u16,
     /// Set for text clips, which show this text instead of media.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<TextContent>,
@@ -84,9 +88,59 @@ fn default_volume() -> u16 {
     100
 }
 
+pub const MIN_SPEED_PERCENT: u16 = 25;
+pub const MAX_SPEED_PERCENT: u16 = 400;
+
+fn default_speed() -> u16 {
+    100
+}
+
+fn is_normal_speed(percent: &u16) -> bool {
+    *percent == 100
+}
+
+/// `value × num / den`, rounded to the nearest microsecond (halves away from zero).
+fn scale(value: Micros, num: u16, den: u16) -> Micros {
+    let (n, d) = (i128::from(value) * i128::from(num), i128::from(den));
+    let rounded = if n >= 0 {
+        (n + d / 2) / d
+    } else {
+        (n - d / 2) / d
+    };
+    rounded as Micros
+}
+
 impl Clip {
     pub fn end(&self) -> Micros {
         self.start + self.duration
+    }
+
+    /// Source media covered by a stretch of the timeline, at this clip's speed.
+    pub fn to_source(&self, timeline_span: Micros) -> Micros {
+        scale(timeline_span, self.speed_percent, 100)
+    }
+
+    /// Timeline length of a stretch of source media, at this clip's speed.
+    pub fn to_timeline(&self, source_span: Micros) -> Micros {
+        scale(source_span, 100, self.speed_percent)
+    }
+
+    /// The source time shown at timeline time `at` (may lie outside the clip).
+    pub fn source_at(&self, at: Micros) -> Micros {
+        self.source_in + self.to_source(at - self.start)
+    }
+
+    /// Where the clip's media ends in the source.
+    pub fn source_end(&self) -> Micros {
+        self.source_in + self.to_source(self.duration)
+    }
+
+    /// The longest the clip can be on the timeline from `source_in`, at
+    /// `speed_percent`, without running past the end of its media. Rounded
+    /// down, so `source_in + to_source(max)` never exceeds the media.
+    fn max_duration(&self, source_in: Micros, speed_percent: u16) -> Micros {
+        let remaining = i128::from(self.source_duration - source_in);
+        (remaining * 100 / i128::from(speed_percent)) as Micros
     }
 
     fn overlaps(&self, start: Micros, end: Micros) -> bool {
@@ -162,6 +216,8 @@ pub struct AudioSegment {
     pub duration: Micros,
     /// Where in the source the segment begins.
     pub source_in: Micros,
+    /// Source media played per unit of timeline time (1.0 = normal speed).
+    pub speed: f32,
     /// Linear gain (1.0 = unchanged).
     pub gain: f32,
     /// Gain ramps up from silence over this range (a transition into the clip).
@@ -209,6 +265,10 @@ pub enum EditError {
     KindMismatch(TrackKind, TrackKind),
     #[error("volume {0}% is out of range (0-200%)")]
     InvalidVolume(u16),
+    #[error("speed {0}% is out of range ({MIN_SPEED_PERCENT}-{MAX_SPEED_PERCENT}%)")]
+    InvalidSpeed(u16),
+    #[error("there isn't room for the slower clip: make space after it first")]
+    NoRoomToSlowDown,
     #[error("invalid project data: {0}")]
     InvalidProject(String),
     #[error("invalid text: {0}")]
@@ -418,7 +478,7 @@ impl Timeline {
     ) -> Result<(), EditError> {
         transform.validate()?;
         let clip = self.media_clip_mut(clip_id)?;
-        if source_time < clip.source_in || source_time > clip.source_in + clip.duration {
+        if source_time < clip.source_in || source_time > clip.source_end() {
             return Err(EditError::OutOfRange(source_time));
         }
         let keys = &mut clip.keyframes;
@@ -539,6 +599,7 @@ impl Timeline {
             source_duration,
             volume_percent: default_volume(),
             muted: false,
+            speed_percent: default_speed(),
             text,
             transform: Transform::default(),
             keyframes: Vec::new(),
@@ -606,13 +667,15 @@ impl Timeline {
         let (start, duration, source_in) = match edge {
             Edge::Start => {
                 // The earliest the clip can start is where source time 0 would land.
-                let at = at.max(clip.start - clip.source_in).max(0);
+                let at = at.max(clip.start - clip.to_timeline(clip.source_in)).max(0);
                 let duration = clip.end() - at;
-                (at, duration, clip.source_in + (at - clip.start))
+                (at, duration, clip.source_at(at).max(0))
             }
             Edge::End => (clip.start, at - clip.start, clip.source_in),
         };
-        if duration < MIN_CLIP_DURATION || source_in + duration > clip.source_duration {
+        if duration < MIN_CLIP_DURATION
+            || duration > clip.max_duration(source_in, clip.speed_percent)
+        {
             return Err(EditError::InvalidDuration);
         }
         if !self.tracks[t].is_free(start, start + duration, Some(clip_id)) {
@@ -638,7 +701,7 @@ impl Timeline {
         right.transition_in = None; // the halves of a split simply cut together
         right.start = at;
         right.duration = clip.duration - left_duration;
-        right.source_in = clip.source_in + left_duration;
+        right.source_in = clip.source_at(at);
         right.id = self.alloc_id();
         let right_id = right.id;
         self.tracks[t].clips[c].duration = left_duration;
@@ -729,6 +792,31 @@ impl Timeline {
         Ok(())
     }
 
+    /// Change a media clip's speed, keeping the same media: the clip gets
+    /// shorter when faster and longer when slower (if there is room after it).
+    pub fn set_clip_speed(&mut self, clip_id: ClipId, percent: u16) -> Result<(), EditError> {
+        if !(MIN_SPEED_PERCENT..=MAX_SPEED_PERCENT).contains(&percent) {
+            return Err(EditError::InvalidSpeed(percent));
+        }
+        let (t, c) = self.locate(clip_id)?;
+        let clip = &self.tracks[t].clips[c];
+        if clip.text.is_some() {
+            return Err(EditError::NotMedia);
+        }
+        let media = clip.source_end() - clip.source_in;
+        let duration = scale(media, 100, percent).min(clip.max_duration(clip.source_in, percent));
+        if duration < MIN_CLIP_DURATION {
+            return Err(EditError::InvalidDuration);
+        }
+        if !self.tracks[t].is_free(clip.start, clip.start + duration, Some(clip_id)) {
+            return Err(EditError::NoRoomToSlowDown);
+        }
+        let clip = &mut self.tracks[t].clips[c];
+        clip.speed_percent = percent;
+        clip.duration = duration;
+        Ok(())
+    }
+
     pub fn set_clip_muted(&mut self, clip_id: ClipId, muted: bool) -> Result<(), EditError> {
         let (t, c) = self.locate(clip_id)?;
         self.tracks[t].clips[c].muted = muted;
@@ -816,6 +904,7 @@ fn audio_segment(track: &Track, index: usize, clip: &Clip) -> AudioSegment {
         start: clip.start,
         duration: clip.duration,
         source_in: clip.source_in,
+        speed: f32::from(clip.speed_percent) / 100.0,
         gain: f32::from(clip.volume_percent) / 100.0,
         fade_in: None,
         fade_out: None,
@@ -826,10 +915,10 @@ fn audio_segment(track: &Track, index: usize, clip: &Clip) -> AudioSegment {
         segment.fade_in = Some(if is_dip(clip) {
             fade(cut, cut + half, FadeCurve::Linear)
         } else {
-            let early = half.min(clip.source_in);
+            let early = half.min(clip.to_timeline(clip.source_in));
             segment.start -= early;
             segment.duration += early;
-            segment.source_in -= early;
+            segment.source_in = (clip.source_in - clip.to_source(early)).max(0);
             fade(cut - early, cut + half, FadeCurve::EqualPower)
         });
     }
@@ -839,7 +928,7 @@ fn audio_segment(track: &Track, index: usize, clip: &Clip) -> AudioSegment {
         segment.fade_out = Some(if is_dip(next) {
             fade(cut - half, cut, FadeCurve::Linear)
         } else {
-            let remaining = clip.source_duration - (clip.source_in + clip.duration);
+            let remaining = clip.to_timeline(clip.source_duration - clip.source_end());
             let late = half.min(remaining.max(0));
             segment.duration += late;
             fade(cut - half, cut + late, FadeCurve::EqualPower)
@@ -861,8 +950,7 @@ fn fade(start: Micros, end: Micros, curve: FadeCurve) -> AudioFade {
 
 /// A clip's transform at timeline time `at`, following its media.
 fn clip_transform(clip: &Clip, at: Micros) -> ResolvedTransform {
-    keyframe::evaluate(&clip.keyframes, clip.source_in + (at - clip.start))
-        .unwrap_or_else(|| clip.transform.into())
+    keyframe::evaluate(&clip.keyframes, clip.source_at(at)).unwrap_or_else(|| clip.transform.into())
 }
 
 /// A clip's layer at timeline time `at` (which may be just outside the clip
@@ -878,7 +966,7 @@ fn clip_layer(
         track_index,
         clip_id: clip.id,
         asset_id: clip.asset_id.clone(),
-        source_time: (clip.source_in + (at - clip.start)).max(0),
+        source_time: clip.source_at(at).max(0),
         clip_time: at - clip.start,
         clip_duration: clip.duration,
         text: clip.text.clone(),
@@ -1599,5 +1687,137 @@ mod tests {
         );
         let text = tl.add_text_clip(track, 8 * S, S, title("Hi")).unwrap();
         assert_eq!(tl.set_clip_color(text, mono), Err(EditError::NotMedia));
+    }
+
+    #[test]
+    fn speed_keeps_the_media_and_changes_the_length() {
+        // 2-6 s on the timeline, source 0-4 s.
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_clip_speed(clip, 200).unwrap();
+        let c = &tl.tracks[0].clips[0];
+        assert_eq!((c.start, c.duration, c.source_end()), (2 * S, 2 * S, 4 * S));
+        assert_eq!(tl.resolve(3 * S)[0].source_time, 2 * S);
+        tl.set_clip_speed(clip, 50).unwrap();
+        let c = &tl.tracks[0].clips[0];
+        assert_eq!((c.duration, c.source_end()), (8 * S, 4 * S));
+        assert_eq!(tl.resolve(4 * S)[0].source_time, S);
+        tl.set_clip_speed(clip, 100).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].duration, 4 * S);
+    }
+
+    #[test]
+    fn speed_changes_are_validated() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        tl.add_clip(track, "b", 7 * S, S, 0, S).unwrap();
+        assert_eq!(
+            tl.set_clip_speed(clip, 50),
+            Err(EditError::NoRoomToSlowDown),
+            "8 s would run into the clip at 7 s"
+        );
+        assert_eq!(
+            tl.set_clip_speed(clip, 24),
+            Err(EditError::InvalidSpeed(24))
+        );
+        assert_eq!(
+            tl.set_clip_speed(clip, 401),
+            Err(EditError::InvalidSpeed(401))
+        );
+        let text = tl.add_text_clip(track, 9 * S, S, title("Hi")).unwrap();
+        assert_eq!(tl.set_clip_speed(text, 200), Err(EditError::NotMedia));
+        assert_eq!(tl.tracks[0].clips[0].duration, 4 * S, "unchanged");
+    }
+
+    #[test]
+    fn trimming_and_splitting_follow_the_speed() {
+        let (mut tl, _, clip) = timeline_with_clip(); // 10 s of media
+        tl.set_clip_speed(clip, 200).unwrap(); // 2-4 s, source 0-4 s
+                                               // At 2x, the remaining 10 s of media lasts 5 s: the end can go to 7 s, no further.
+        tl.trim_clip(clip, Edge::End, 7 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].source_end(), 10 * S);
+        assert_eq!(
+            tl.trim_clip(clip, Edge::End, 7 * S + 1),
+            Err(EditError::InvalidDuration)
+        );
+        tl.trim_clip(clip, Edge::Start, 3 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].source_in, 2 * S);
+        let right = tl.split_clip(clip, 4 * S).unwrap();
+        let right = tl.tracks[0].clips.iter().find(|c| c.id == right).unwrap();
+        assert_eq!((right.source_in, right.speed_percent), (4 * S, 200));
+    }
+
+    #[test]
+    fn speed_reaches_the_audio_and_keyframes() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_keyframe(clip, 0, at_x(0)).unwrap();
+        tl.set_keyframe(clip, 4 * S, at_x(1000)).unwrap();
+        tl.set_clip_speed(clip, 200).unwrap();
+        // Keyframes follow the media: halfway through the (now 2 s) clip is source 2 s.
+        assert_eq!(x_at(&tl, 3 * S), 500.0);
+        let segment = &tl.audio_segments(0, 10 * S)[0];
+        assert_eq!(
+            (segment.start, segment.duration, segment.speed),
+            (2 * S, 2 * S, 2.0)
+        );
+    }
+
+    #[test]
+    fn crossfade_extensions_are_measured_in_timeline_time() {
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        let a = tl.add_clip(track, "a", 0, 4 * S, 0, 20 * S).unwrap();
+        let b = tl
+            .add_clip(track, "b", 4 * S, 4 * S, 4 * S, 20 * S)
+            .unwrap();
+        tl.set_clip_speed(b, 200).unwrap(); // 4-6 s, source 4-8 s
+        let fade = Transition {
+            kind: crate::transition::TransitionKind::Crossfade,
+            duration_ms: 1000,
+        };
+        tl.set_clip_transition(b, Some(fade)).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        let incoming = segments.iter().find(|s| s.clip_id == b).unwrap();
+        // Starts 0.5 s early on the timeline, which is 1 s of its (2x) media.
+        assert_eq!((incoming.start, incoming.source_in), (3_500_000, 3 * S));
+        let outgoing = segments.iter().find(|s| s.clip_id == a).unwrap();
+        assert_eq!(outgoing.duration, 4_500_000);
+    }
+
+    #[test]
+    fn normal_speed_is_not_saved() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        assert!(!tl.to_json().contains("speedPercent"));
+        tl.set_clip_speed(clip, 150).unwrap();
+        assert!(tl.to_json().contains("\"speedPercent\":150"));
+        assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
+    }
+
+    #[test]
+    fn the_longest_clip_never_runs_past_its_media() {
+        for speed in [25, 33, 67, 100, 150, 299, 300, 333, 400] {
+            for media in [10_001, 999_999, 1_234_567, 7 * S + 3] {
+                for source_in in [0, 1, 333_333] {
+                    let clip = Clip {
+                        source_in,
+                        source_duration: media + source_in,
+                        speed_percent: speed,
+                        ..timeline_with_clip().0.tracks[0].clips[0].clone()
+                    };
+                    let max = clip.max_duration(source_in, speed);
+                    let fitted = Clip {
+                        duration: max,
+                        ..clip.clone()
+                    };
+                    assert!(
+                        fitted.source_end() <= clip.source_duration,
+                        "{speed}% {media}"
+                    );
+                    let over = Clip {
+                        duration: max + 1,
+                        ..clip
+                    };
+                    assert!(over.source_end() > over.source_duration - 2, "tight bound");
+                }
+            }
+        }
     }
 }

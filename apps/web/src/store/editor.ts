@@ -743,6 +743,11 @@ export function cancelGesture(): void {
   refresh();
 }
 
+/** Change a clip's playback speed (percent); its length on the timeline follows. */
+export function setClipSpeed(clipId: number, percent: number): boolean {
+  return edit((e) => e.setClipSpeed(clipId, percent));
+}
+
 export function setClipVolume(clipId: number, percent: number) {
   edit((e) => e.setClipVolume(clipId, percent));
 }

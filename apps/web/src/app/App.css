@@ -223,6 +223,18 @@ button.active {
   border-color: var(--danger);
 }
 
+.clip-audio input[type='range'],
+.zoom input[type='range'] {
+  width: 96px;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
 .clip-audio .volume {
   display: flex;
   align-items: center;

@@ -1,5 +1,7 @@
 import {
   clipEnd,
+  sourceAt,
+  timelineAt,
   TRANSFORM_LIMITS,
   type Clip,
   type Keyframe,
@@ -16,12 +18,11 @@ import { framesToMicros } from './time';
  */
 
 /** The playhead is on a keyframe within half a preview frame of it. */
-export const KEYFRAME_TOLERANCE_US = framesToMicros(1) / 2;
+export const KEYFRAME_TOLERANCE_US = Math.floor(framesToMicros(1) / 2);
 
-export const sourceTimeAt = (clip: Clip, at: Micros): Micros => clip.sourceIn + (at - clip.start);
+export const sourceTimeAt = sourceAt;
 
-export const timelineTimeOf = (clip: Clip, sourceTime: Micros): Micros =>
-  clip.start + (sourceTime - clip.sourceIn);
+export const timelineTimeOf = timelineAt;
 
 /** Whether timeline time `at` is inside the clip (end included, like the engine). */
 export const coversTime = (clip: Clip, at: Micros): boolean =>
@@ -30,7 +31,7 @@ export const coversTime = (clip: Clip, at: Micros): boolean =>
 /** Keyframes inside the clip's current range (trimmed-off ones still shape the motion). */
 export function visibleKeyframes(clip: Clip): Keyframe[] {
   const from = clip.sourceIn;
-  const to = clip.sourceIn + clip.duration;
+  const to = sourceAt(clip, clipEnd(clip));
   return (clip.keyframes ?? []).filter((k) => k.sourceTime >= from && k.sourceTime <= to);
 }
 

@@ -53,7 +53,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Audio crossfades under video transitions (equal power; dips fade to the cut)
 - [x] Filters: brightness, contrast, saturation and one-click looks (all renderers)
 - [ ] LUTs, temperature/tint; plugin API for effects
-- [ ] Speed control (0.25×–4×) with audio pitch preservation
+- [x] Speed control (0.25×–4×) with audio pitch preservation
+- [ ] Speed ramps, reverse playback
 - [ ] Ripple delete, magnetic timeline, multi-select, copy/paste
 - [ ] Proxy media for 4K sources
 

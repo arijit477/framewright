@@ -10,6 +10,7 @@ export const FIXTURES = {
   audio: 'music.wav',
   overlay: 'red.webm',
   beep: 'beep.webm',
+  steps: 'steps.wav',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 
@@ -89,6 +90,39 @@ export function toneDb(path: string, hz: number, from: number, duration: number)
   const match = /max_volume: (-?[\d.]+|-inf) dB/.exec(log);
   if (!match) throw new Error(`No audio level found in ${path}`);
   return match[1] === '-inf' ? -Infinity : Number(match[1]);
+}
+
+/**
+ * The test pattern's burned-in timestamp (top-left) as a black-and-white mask:
+ * a reliable way to tell which source moment a frame shows, because encoding
+ * noise doesn't survive the threshold.
+ */
+export function timestampMask(path: string, seconds: number): Uint8Array {
+  const gray = execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-ss',
+    String(seconds),
+    '-i',
+    path,
+    '-frames:v',
+    '1',
+    '-vf',
+    'crop=118:40:0:0,scale=118:40',
+    '-f',
+    'rawvideo',
+    '-pix_fmt',
+    'gray',
+    '-',
+  ]);
+  return Uint8Array.from(gray, (v) => (v > 110 ? 1 : 0));
+}
+
+/** Percentage of pixels that differ between two masks (same moment ≈ 0.1, others ≥ 1, measured). */
+export function maskDifference(a: Uint8Array, b: Uint8Array): number {
+  let different = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) different++;
+  return (different / a.length) * 100;
 }
 
 /** Errors reported by ffmpeg while fully decoding the file (empty = clean). */

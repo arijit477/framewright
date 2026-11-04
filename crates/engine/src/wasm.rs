@@ -144,6 +144,12 @@ impl Engine {
         self.timeline.set_clip_volume(clip_id, percent).map_err(err)
     }
 
+    /// Playback speed in percent (25-400); the clip's length changes to match.
+    #[wasm_bindgen(js_name = setClipSpeed)]
+    pub fn set_clip_speed(&mut self, clip_id: u32, percent: u16) -> Result<(), JsError> {
+        self.timeline.set_clip_speed(clip_id, percent).map_err(err)
+    }
+
     #[wasm_bindgen(js_name = setClipMuted)]
     pub fn set_clip_muted(&mut self, clip_id: u32, muted: bool) -> Result<(), JsError> {
         self.timeline.set_clip_muted(clip_id, muted).map_err(err)
