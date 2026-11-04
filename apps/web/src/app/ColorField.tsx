@@ -4,6 +4,7 @@ import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
 import { COLOR_PRESETS, isNeutral, NEUTRAL_COLOR, sameColor } from '../render/color';
 import { importLut, setClipColor, setClipLut, useEditor } from '../store/editor';
+import { LutManager } from './LutManager';
 import { Slider } from './TransformInspector';
 
 const COMMIT_DELAY_MS = 400;
@@ -93,6 +94,7 @@ export function ColorField({ clip }: { clip: Clip }) {
 function LutField({ clip }: { clip: Clip }) {
   const luts = useEditor((s) => s.luts);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [managing, setManaging] = useState(false);
   const current = clip.lut;
   const [intensity, setIntensity] = useState(current?.intensityPercent ?? 100);
   const commitIntensity = () => {
@@ -132,7 +134,13 @@ function LutField({ clip }: { clip: Clip }) {
       {current && !luts[current.lutId] && (
         <p className="muted inspector-tip">This clip’s LUT isn’t in the project any more.</p>
       )}
-      <button onClick={() => fileInput.current?.click()}>Load .cube file…</button>
+      <div className="lut-buttons">
+        <button onClick={() => fileInput.current?.click()}>Load .cube file…</button>
+        <button onClick={() => setManaging(true)} disabled={options.length === 0}>
+          Manage LUTs…
+        </button>
+      </div>
+      <LutManager open={managing} onClose={() => setManaging(false)} />
       <input
         ref={fileInput}
         type="file"

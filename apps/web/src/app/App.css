@@ -724,3 +724,33 @@ button.toggle {
 .preview-frame canvas.draggable {
   cursor: move;
 }
+
+.lut-buttons {
+  display: grid;
+  gap: 6px;
+}
+
+.lut-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.lut-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.lut-row input {
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: #1f1f29;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}

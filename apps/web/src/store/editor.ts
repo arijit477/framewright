@@ -24,6 +24,7 @@ import {
   sourceTimeAt,
   timelineTimeOf,
 } from '../lib/keyframes';
+import { cleanLutName, lutUsage } from '../lib/luts';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
@@ -165,6 +166,7 @@ function refresh() {
     canRedo: redoStack.length > 0,
   }));
   if (get().playing) audio.update(e.audioSegments());
+  restoreReferencedLuts();
   requestFrame();
 }
 
@@ -352,6 +354,7 @@ function lutsFor(ids: Iterable<string> = decodedLuts.keys()): LutData[] {
 /** Replace the project's LUTs (on load); damaged ones are left out with a notice. */
 function setProjectLuts(luts: readonly ProjectLut[]) {
   decodedLuts.clear();
+  removedLuts.clear();
   const kept: Record<string, ProjectLut> = {};
   for (const lut of luts) {
     try {
@@ -378,14 +381,79 @@ export async function importLut(file: File): Promise<string | null> {
     return null;
   }
   const id = crypto.randomUUID();
-  const name = parsed.title ?? file.name.replace(/\.cube$/i, '');
+  const name = cleanLutName(parsed.title ?? file.name.replace(/\.cube$/i, '')) ?? 'LUT';
   // Store at 16-bit precision, and render from exactly what was stored.
-  const data = encodeLut(parsed.lut);
-  decodedLuts.set(id, decodeLut(parsed.lut.size, data));
-  set((s) => ({ luts: { ...s.luts, [id]: { id, name, size: parsed.lut.size, data } } }));
+  addLuts([{ id, name, size: parsed.lut.size, data: encodeLut(parsed.lut) }]);
+  return id;
+}
+
+/** Add LUTs to the project (skipping ones it has), and tell the renderer. */
+function addLuts(luts: readonly ProjectLut[]) {
+  const added = luts.filter((lut) => !get().luts[lut.id]);
+  if (added.length === 0) return;
+  for (const lut of added) decodedLuts.set(lut.id, decodeLut(lut.size, lut.data));
+  set((s) => ({ luts: { ...s.luts, ...Object.fromEntries(added.map((l) => [l.id, l])) } }));
   renderer.setLuts(lutsFor());
   emit({ type: 'changed' });
-  return id;
+}
+
+/**
+ * LUTs removed from the project this session. Undo, redo or a paste can bring
+ * back a clip that uses one; it's then restored. (Undo history doesn't survive
+ * a reload, so nothing saved can refer to a removed LUT.)
+ */
+const removedLuts = new Map<string, ProjectLut>();
+
+/** Put back any removed LUT that a clip on the timeline uses again. */
+function restoreReferencedLuts() {
+  const { timeline, luts } = get();
+  const missing = [...lutUsage(timeline).keys()].filter((id) => !luts[id] && removedLuts.has(id));
+  if (missing.length === 0) return;
+  addLuts(missing.map((id) => removedLuts.get(id)!));
+  for (const id of missing) removedLuts.delete(id);
+}
+
+/** Rename a project LUT (an empty name is ignored). */
+export function renameLut(id: string, name: string): void {
+  const lut = get().luts[id];
+  const cleaned = cleanLutName(name);
+  if (!lut || !cleaned || cleaned === lut.name) return;
+  set((s) => ({ luts: { ...s.luts, [id]: { ...lut, name: cleaned } } }));
+  emit({ type: 'changed' });
+}
+
+/**
+ * Remove LUTs from the project. Only LUTs no clip uses can go (returns false
+ * with a message otherwise). Not an undo step, but see `removedLuts`.
+ */
+export function removeLuts(ids: readonly string[]): boolean {
+  const { luts, timeline } = get();
+  const usage = lutUsage(timeline);
+  const used = ids.filter((id) => usage.has(id));
+  if (used.length > 0) {
+    notify('info', 'That LUT is still used by a clip. Remove it from those clips first.');
+    return false;
+  }
+  const remaining = { ...luts };
+  for (const id of ids) {
+    const lut = luts[id];
+    if (!lut) continue;
+    removedLuts.set(id, lut);
+    decodedLuts.delete(id);
+    delete remaining[id];
+  }
+  set({ luts: remaining });
+  renderer.setLuts(lutsFor());
+  emit({ type: 'changed' });
+  return true;
+}
+
+/** Remove every LUT no clip uses. Returns how many were removed. */
+export function removeUnusedLuts(): number {
+  const usage = lutUsage(get().timeline);
+  const unused = Object.keys(get().luts).filter((id) => !usage.has(id));
+  if (unused.length > 0) removeLuts(unused);
+  return unused.length;
 }
 
 /** Apply a project LUT to a clip (or remove it with null). One undo step. */
@@ -648,14 +716,21 @@ export function moveSelection(delta: number): boolean {
 
 // ---------------------------------------------------------------- clipboard
 
-/** Copied clips, kept in memory for this tab (pasting works across projects for titles and shared media). */
-let clipboard: CopiedClip[] | null = null;
+/**
+ * Copied clips, kept in memory for this tab, with the LUTs they use, so a
+ * paste into another project (or after removing a LUT) still grades them.
+ * Pasting across projects works for titles and media both projects have.
+ */
+let clipboard: { clips: CopiedClip[]; luts: ProjectLut[] } | null = null;
 
 /** Copy the selected clips (Ctrl/⌘+C). */
 export function copySelected(): boolean {
   const ids = get().selectedClipIds;
   if (ids.length === 0) return false;
-  clipboard = requireEngine().copyClips(ids);
+  const clips = requireEngine().copyClips(ids);
+  const { luts } = get();
+  const lutIds = new Set(clips.flatMap((c) => (c.clip.lut ? [c.clip.lut.lutId] : [])));
+  clipboard = { clips, luts: [...lutIds].flatMap((id) => (luts[id] ? [luts[id]] : [])) };
   notify('info', ids.length === 1 ? 'Copied 1 clip.' : `Copied ${ids.length} clips.`);
   return true;
 }
@@ -699,14 +774,15 @@ export function paste(): void {
     return;
   }
   const { assets, playhead } = get();
-  const usable = clipboard.filter((c) => c.clip.text || assets[c.clip.assetId]);
-  if (usable.length < clipboard.length) {
+  const usable = clipboard.clips.filter((c) => c.clip.text || assets[c.clip.assetId]);
+  if (usable.length < clipboard.clips.length) {
     notify(
       'info',
       'Some copied clips use media that isn’t in this project, so they were left out.',
     );
   }
   if (usable.length === 0) return;
+  addLuts(clipboard.luts); // before the paste renders; ones the project has are skipped
   let ids: number[] = [];
   const pasted = edit((e) => {
     ids = e.pasteClips(usable, playhead);
