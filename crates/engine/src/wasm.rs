@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::text::{TextContent, TextStyle};
 use crate::timeline::{Edge, EditError, Micros, Timeline, TrackKind};
 use crate::transform::Transform;
+use crate::transition::Transition;
 
 fn to_micros(value: f64) -> Micros {
     value.round() as Micros
@@ -174,6 +175,25 @@ impl Engine {
         self.timeline
             .set_clip_transform(clip_id, transform)
             .map_err(err)
+    }
+
+    /// Set (`{ kind, durationMs }`) or clear (`null`) the transition into a clip.
+    #[wasm_bindgen(js_name = setClipTransition)]
+    pub fn set_clip_transition(
+        &mut self,
+        clip_id: u32,
+        transition: JsValue,
+    ) -> Result<(), JsError> {
+        let transition: Option<Transition> = serde_wasm_bindgen::from_value(transition)?;
+        self.timeline
+            .set_clip_transition(clip_id, transition)
+            .map_err(err)
+    }
+
+    /// Whether a clip's transition is in effect (it touches the clip before it).
+    #[wasm_bindgen(js_name = transitionActive)]
+    pub fn transition_active(&self, track_id: u32, clip_id: u32) -> bool {
+        self.timeline.transition_active(track_id, clip_id)
     }
 
     /// The default style for new titles, so the UI doesn't duplicate it.
