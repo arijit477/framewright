@@ -23,6 +23,10 @@ test.describe('projects', () => {
 
     await editor.reload();
     expect(await editor.projectName()).toBe('Holiday cut');
+    // Media keeps its original names (the stored copies are named by id).
+    const tracks = (await editor.tracks()).join('\n');
+    expect(tracks).toContain('tone.webm');
+    expect(tracks).toContain('music.wav');
     expect((await editor.times()).duration).toBeCloseTo(6, 1);
     await expect(editor.page.locator('.preview-empty')).toHaveCount(0);
     await expect(editor.page.locator('.banner')).toHaveCount(0); // media restored from storage
