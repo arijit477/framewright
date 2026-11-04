@@ -13,7 +13,6 @@
 import {
   AudioSample,
   AudioSampleSource,
-  BufferTarget,
   CanvasSource,
   getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
@@ -32,12 +31,15 @@ import { openAsset } from '../media/asset';
 import { createCompositor } from '../render/compositor';
 import { FrameReader } from '../render/frame-reader';
 import { ReaderPool } from '../render/reader-pool';
-import type { ExportAsset, FromExportWorker, ToExportWorker } from './protocol';
+import type { ExportAsset, ExportDestination, FromExportWorker, ToExportWorker } from './protocol';
+import { openSink, type ExportSink } from './sink';
 import {
   AUDIO_CODECS,
   audioBitrate,
   EXPORT_SAMPLE_RATE,
+  FORMATS,
   frameTimeUs,
+  maximumPacketCounts,
   outputSize,
   totalFrames,
   VIDEO_CODECS,
@@ -63,15 +65,22 @@ scope.onmessage = (event) => {
   const message = event.data;
   if (message.type === 'cancel') cancelled = true;
   if (message.type === 'start') {
-    run(message.projectJson, message.assets, message.settings).catch((error: unknown) => {
-      send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
-    });
+    run(message.projectJson, message.assets, message.settings, message.destination).catch(
+      (error: unknown) => {
+        send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+      },
+    );
   }
 };
 
 class Cancelled extends Error {}
 
-async function run(projectJson: string, assets: ExportAsset[], settings: ExportSettings) {
+async function run(
+  projectJson: string,
+  assets: ExportAsset[],
+  settings: ExportSettings,
+  destination: ExportDestination,
+) {
   const startedAt = performance.now();
   const warnings: string[] = [];
   const engine = await TimelineEngine.fromJson(projectJson);
@@ -83,6 +92,7 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
   const audioTracks = new Map<string, InputAudioTrack>();
   let mixer: Mixer | null = null;
   let output: Output | null = null;
+  let sink: ExportSink | null = null;
 
   try {
     const durationUs = engine.duration();
@@ -124,24 +134,34 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
     // Wire up the output file.
     const canvas = new OffscreenCanvas(width, height);
     const compositor = await createCompositor(canvas, { backend: 'canvas2d' });
+    sink = await openSink(
+      destination,
+      `${crypto.randomUUID()}.${FORMATS[settings.format].extension}`,
+    );
     output = new Output({
       format:
         settings.format === 'mp4'
-          ? new Mp4OutputFormat({ fastStart: 'in-memory' })
+          ? // Streamed files reserve room for the index up front, so they keep fast start
+            // without holding the media in memory.
+            new Mp4OutputFormat({ fastStart: sink.streaming ? 'reserve' : 'in-memory' })
           : new WebMOutputFormat(),
-      target: new BufferTarget(),
+      target: sink.target,
     });
+    const packetLimits = maximumPacketCounts(durationUs, settings.fps);
     const videoSource = new CanvasSource(canvas, {
       codec: videoCodec,
       bitrate: videoBitrate(settings),
       keyFrameInterval: KEYFRAME_INTERVAL_S,
     });
-    output.addVideoTrack(videoSource, { frameRate: settings.fps });
+    output.addVideoTrack(videoSource, {
+      frameRate: settings.fps,
+      maximumPacketCount: packetLimits.video,
+    });
 
     let audioSource: AudioSampleSource | null = null;
     if (audioCodec) {
       audioSource = new AudioSampleSource({ codec: audioCodec, bitrate: audioBitrate(settings) });
-      output.addAudioTrack(audioSource);
+      output.addAudioTrack(audioSource, { maximumPacketCount: packetLimits.audio });
       mixer = new Mixer(
         streamsFrom(audioTracks, EXPORT_SAMPLE_RATE),
         EXPORT_SAMPLE_RATE,
@@ -211,12 +231,11 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
     }
 
     await output.finalize();
-    const buffer = (output.target as BufferTarget).buffer;
-    if (!buffer) throw new Error('The encoder produced no data.');
+    const result = await sink.finish();
     send(
       {
         type: 'done',
-        buffer,
+        output: result,
         mimeType: await output.getMimeType(),
         videoCodec,
         audioCodec,
@@ -224,12 +243,14 @@ async function run(projectJson: string, assets: ExportAsset[], settings: ExportS
         elapsedMs: performance.now() - startedAt,
         warnings,
       },
-      [buffer],
+      result.kind === 'memory' ? [result.buffer] : [],
     );
   } catch (error) {
     if (output && output.state !== 'finalized' && output.state !== 'canceled') {
       await output.cancel().catch(() => {});
     }
+    // Never leave a partial file behind.
+    await sink?.abort();
     if (error instanceof Cancelled) {
       send({ type: 'cancelled' });
       return;

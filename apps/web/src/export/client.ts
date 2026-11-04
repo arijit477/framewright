@@ -1,4 +1,10 @@
-import type { ExportAsset, ExportResult, FromExportWorker, ToExportWorker } from './protocol';
+import type {
+  ExportAsset,
+  ExportDestination,
+  ExportResult,
+  FromExportWorker,
+  ToExportWorker,
+} from './protocol';
 import type { ExportSettings } from './settings';
 
 export interface ExportCallbacks {
@@ -20,13 +26,14 @@ export class ExportJob {
     projectJson: string,
     assets: ExportAsset[],
     settings: ExportSettings,
+    destination: ExportDestination,
     private readonly callbacks: ExportCallbacks,
   ) {
     this.worker = new Worker(new URL('./export.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (event: MessageEvent<FromExportWorker>) => this.handle(event.data);
     this.worker.onerror = (event) =>
       this.finish(() => callbacks.onError(event.message || 'Export worker crashed'));
-    this.post({ type: 'start', projectJson, assets, settings });
+    this.post({ type: 'start', projectJson, assets, settings, destination });
   }
 
   cancel(): void {
