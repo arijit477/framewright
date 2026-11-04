@@ -21,6 +21,25 @@ export interface Clip {
   text?: TextContent;
   /** Placement of a media clip; omitted when unchanged. */
   transform?: Transform;
+  /** Transition from the clip directly before (inactive unless they touch). */
+  transitionIn?: Transition;
+}
+
+export type TransitionKind = 'crossfade' | 'dip' | 'slide' | 'wipe';
+
+/** Mirrors crates/engine/src/transition.rs. */
+export interface Transition {
+  kind: TransitionKind;
+  durationMs: number;
+}
+
+export const TRANSITION_LIMITS = { minMs: 100, maxMs: 3000 } as const;
+
+/** A layer's part in a transition: `progress` is 0–1000. */
+export interface LayerTransition {
+  kind: TransitionKind;
+  outgoing: boolean;
+  progress: number;
 }
 
 /** Mirrors crates/engine/src/transform.rs: integers relative to the frame. */
@@ -107,6 +126,8 @@ export interface Layer {
   /** Set for text clips: drawn instead of a video frame. */
   text?: TextContent;
   transform: Transform;
+  /** Set while this layer is part of a transition. */
+  transition?: LayerTransition;
 }
 
 /** One audible stretch of a clip, for the audio mixer. */

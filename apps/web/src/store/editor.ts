@@ -8,6 +8,7 @@ import {
   type TimelineSnapshot,
   type TrackKind,
   type Transform,
+  type Transition,
 } from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
@@ -336,12 +337,22 @@ export async function loadProject(project: {
 
   // Re-open the media in the workers.
   await Promise.all(
-    project.assets.map(async ({ id }) => {
+    project.assets.map(async (saved) => {
+      const { id } = saved;
       const file = project.files.get(id);
       if (!file) return;
       try {
-        const asset = await probeAsset(id, file);
+        const probed = await probeAsset(id, file);
         assetFiles.set(id, file);
+        // The stored copy is named after the asset id: keep the original file's
+        // name and details from the project, and take only the media facts.
+        const asset: EditorAsset = {
+          ...probed,
+          name: saved.name,
+          type: saved.type,
+          size: saved.size,
+          lastModified: saved.lastModified,
+        };
         set((s) => ({ assets: { ...s.assets, [id]: asset } }));
       } catch {
         // Unreadable stored copy: leave it marked missing so the user can relink.
@@ -547,6 +558,25 @@ export function previewDragTarget(state: EditorState = get()): Clip | null {
     .filter((c) => c.start <= playhead && playhead < clipEnd(c))
     .filter((c) => c.text || assets[c.assetId]?.hasVideo);
   return visible.find((c) => c.id === selectedClipId) ?? visible[0] ?? null;
+}
+
+/** Set or clear (null) the transition from the clip directly before. */
+export function setClipTransition(clipId: number, transition: Transition | null): boolean {
+  return edit((e) => e.setClipTransition(clipId, transition));
+}
+
+/**
+ * The clip a transition into `clip` would come from: the one directly before
+ * it on the same track, touching it, and not a title. Null if there is none.
+ */
+export function previousClip(clip: Clip, timeline: TimelineSnapshot): Clip | null {
+  for (const track of timeline.tracks) {
+    const index = track.clips.findIndex((c) => c.id === clip.id);
+    if (index < 0) continue;
+    const before = track.clips[index - 1];
+    return before && clipEnd(before) === clip.start && !before.text ? before : null;
+  }
+  return null;
 }
 
 export function setClipTransform(clipId: number, transform: Transform): boolean {

@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::text::{TextContent, TextError};
 use crate::transform::{Transform, TransformError};
+use crate::transition::{LayerTransition, Transition, TransitionError};
 
 /// Time in microseconds.
 pub type Micros = i64;
@@ -57,6 +58,10 @@ pub struct Clip {
     /// when unchanged, so old projects and plain clips stay compact.
     #[serde(default, skip_serializing_if = "Transform::is_identity")]
     pub transform: Transform,
+    /// Transition from the clip directly before this one on the same track.
+    /// Inactive (ignored) while the clips aren't touching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_in: Option<Transition>,
 }
 
 pub const MAX_VOLUME_PERCENT: u16 = 200;
@@ -128,6 +133,9 @@ pub struct Layer {
     pub text: Option<TextContent>,
     /// Placement of a media clip (identity for text, which uses its style).
     pub transform: Transform,
+    /// Set while the layer is part of a transition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<LayerTransition>,
 }
 
 /// One audible stretch of a clip, as the audio mixer needs it.
@@ -175,6 +183,8 @@ pub enum EditError {
     InvalidTransform(#[from] TransformError),
     #[error("text clips are positioned with their text style, not a transform")]
     TransformOnText,
+    #[error("invalid transition: {0}")]
+    InvalidTransition(#[from] TransitionError),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +326,33 @@ impl Timeline {
         Ok(())
     }
 
+    /// Set or clear the transition from the clip directly before this one.
+    pub fn set_clip_transition(
+        &mut self,
+        clip_id: ClipId,
+        transition: Option<Transition>,
+    ) -> Result<(), EditError> {
+        let (t, c) = self.locate(clip_id)?;
+        if let Some(transition) = transition {
+            transition.validate()?;
+            let track = &self.tracks[t];
+            let clip = &track.clips[c];
+            let previous = c
+                .checked_sub(1)
+                .map(|p| &track.clips[p])
+                .filter(|p| p.end() == clip.start)
+                .ok_or(TransitionError::NoPreviousClip)?;
+            if clip.text.is_some() || previous.text.is_some() {
+                return Err(TransitionError::NotVideo.into());
+            }
+            if transition.duration() > clip.duration.min(previous.duration) {
+                return Err(TransitionError::TooLong.into());
+            }
+        }
+        self.tracks[t].clips[c].transition_in = transition;
+        Ok(())
+    }
+
     /// Set where a media clip appears in the frame.
     pub fn set_clip_transform(
         &mut self,
@@ -361,6 +398,7 @@ impl Timeline {
             muted: false,
             text,
             transform: Transform::default(),
+            transition_in: None,
         });
         Ok(id)
     }
@@ -452,6 +490,7 @@ impl Timeline {
         }
         let left_duration = at - clip.start;
         let mut right = clip.clone();
+        right.transition_in = None; // the halves of a split simply cut together
         right.start = at;
         right.duration = clip.duration - left_duration;
         right.source_in = clip.source_in + left_duration;
@@ -469,28 +508,48 @@ impl Timeline {
     }
 
     /// Every video clip visible at timeline time `at`, bottom layer first.
+    /// During a transition a track contributes both clips: outgoing, then incoming.
     ///
-    /// This runs on every frame during playback, so it binary-searches each track.
+    /// This runs on every frame during playback, so it binary-searches each track
+    /// and only looks at the clips either side of `at` for transitions.
     pub fn resolve(&self, at: Micros) -> Vec<Layer> {
-        self.tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.kind == TrackKind::Video)
-            .filter_map(|(track_index, track)| {
-                let i = track.clips.partition_point(|c| c.end() <= at);
-                let clip = track.clips.get(i).filter(|c| c.start <= at)?;
-                Some(Layer {
-                    track_index,
-                    clip_id: clip.id,
-                    asset_id: clip.asset_id.clone(),
-                    source_time: clip.source_in + (at - clip.start),
-                    clip_time: at - clip.start,
-                    clip_duration: clip.duration,
-                    text: clip.text.clone(),
-                    transform: clip.transform,
-                })
-            })
-            .collect()
+        let mut layers = Vec::new();
+        for (track_index, track) in self.tracks.iter().enumerate() {
+            if track.kind != TrackKind::Video {
+                continue;
+            }
+            let i = track.clips.partition_point(|c| c.end() <= at);
+            // `at` is either in an incoming clip's head (i) or an outgoing clip's tail (i + 1).
+            let transition = [i, i + 1].into_iter().find_map(|incoming| {
+                let (outgoing, clip, duration) = active_transition(track, incoming)?;
+                let window_start = clip.start - duration / 2;
+                (window_start <= at && at < window_start + duration).then_some((
+                    outgoing,
+                    clip,
+                    duration,
+                    window_start,
+                ))
+            });
+            if let Some((outgoing, incoming, duration, window_start)) = transition {
+                let kind = incoming.transition_in.expect("active transition").kind;
+                let progress = ((at - window_start) * 1000 / duration) as u16;
+                for (clip, is_outgoing) in [(outgoing, true), (incoming, false)] {
+                    layers.push(clip_layer(
+                        track_index,
+                        clip,
+                        at,
+                        Some(LayerTransition {
+                            kind,
+                            outgoing: is_outgoing,
+                            progress,
+                        }),
+                    ));
+                }
+            } else if let Some(clip) = track.clips.get(i).filter(|c| c.start <= at) {
+                layers.push(clip_layer(track_index, clip, at, None));
+            }
+        }
+        layers
     }
 
     /// Every audible clip overlapping `[from, to)`, on any track, in timeline order.
@@ -542,6 +601,18 @@ impl Timeline {
         serde_json::from_str(json).map_err(|e| EditError::InvalidProject(e.to_string()))
     }
 
+    /// Whether a clip's transition is in effect (it touches the clip before it).
+    pub fn transition_active(&self, track_id: TrackId, clip_id: ClipId) -> bool {
+        self.tracks
+            .iter()
+            .find(|t| t.id == track_id)
+            .and_then(|track| {
+                let index = track.clips.iter().position(|c| c.id == clip_id)?;
+                active_transition(track, index)
+            })
+            .is_some()
+    }
+
     fn track_index(&self, track_id: TrackId) -> Result<usize, EditError> {
         self.tracks
             .iter()
@@ -561,6 +632,46 @@ impl Timeline {
                     .map(|c| (t, c))
             })
             .ok_or(EditError::ClipNotFound(clip_id))
+    }
+}
+
+/// The transition into the clip at `incoming`, if it's in effect: the clip
+/// before it touches it, and both are media. Returns (outgoing, incoming,
+/// effective duration). The duration is clamped to the clips' lengths, since
+/// either may have been trimmed after the transition was added.
+fn active_transition(track: &Track, incoming: usize) -> Option<(&Clip, &Clip, Micros)> {
+    let clip = track.clips.get(incoming)?;
+    let transition = clip.transition_in?;
+    let outgoing = track.clips.get(incoming.checked_sub(1)?)?;
+    if outgoing.end() != clip.start || clip.text.is_some() || outgoing.text.is_some() {
+        return None;
+    }
+    let duration = transition
+        .duration()
+        .min(clip.duration)
+        .min(outgoing.duration);
+    (duration > 0).then_some((outgoing, clip, duration))
+}
+
+/// A clip's layer at timeline time `at` (which may be just outside the clip
+/// during a transition: the source time is then past its out-point or before
+/// its in-point, and is clamped at the start of the media).
+fn clip_layer(
+    track_index: usize,
+    clip: &Clip,
+    at: Micros,
+    transition: Option<LayerTransition>,
+) -> Layer {
+    Layer {
+        track_index,
+        clip_id: clip.id,
+        asset_id: clip.asset_id.clone(),
+        source_time: (clip.source_in + (at - clip.start)).max(0),
+        clip_time: at - clip.start,
+        clip_duration: clip.duration,
+        text: clip.text.clone(),
+        transform: clip.transform,
+        transition,
     }
 }
 
@@ -915,6 +1026,108 @@ mod tests {
         let json = tl.to_json();
         assert!(json.contains("transform"));
         assert_eq!(Timeline::from_json(&json).unwrap(), tl);
+    }
+
+    fn two_clips() -> (Timeline, TrackId, ClipId, ClipId) {
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Video);
+        // a: 0-6 s from source 0; b: 6-9 s from source 2 s.
+        let a = tl.add_clip(track, "a", 0, 6 * S, 0, 10 * S).unwrap();
+        let b = tl
+            .add_clip(track, "b", 6 * S, 3 * S, 2 * S, 10 * S)
+            .unwrap();
+        (tl, track, a, b)
+    }
+
+    fn crossfade(ms: u16) -> Transition {
+        Transition {
+            kind: crate::transition::TransitionKind::Crossfade,
+            duration_ms: ms,
+        }
+    }
+
+    #[test]
+    fn transitions_show_both_clips_around_the_cut() {
+        let (mut tl, _, a, b) = two_clips();
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+
+        assert_eq!(tl.resolve(5_400_000).len(), 1, "before the window: only a");
+        let at_cut = tl.resolve(6 * S);
+        assert_eq!(at_cut.len(), 2);
+        let (out, inc) = (&at_cut[0], &at_cut[1]);
+        assert_eq!((out.clip_id, inc.clip_id), (a, b));
+        assert!(out.transition.unwrap().outgoing);
+        assert_eq!(
+            inc.transition.unwrap().progress,
+            500,
+            "the cut is the midpoint"
+        );
+        // The outgoing clip plays on past its end; the incoming one started early.
+        assert_eq!(out.source_time, 6 * S);
+        let early = tl.resolve(5_600_000);
+        assert_eq!(early[1].source_time, 2 * S - 400_000);
+        assert_eq!(tl.resolve(6_600_000).len(), 1, "after the window: only b");
+    }
+
+    #[test]
+    fn transitions_need_touching_media_clips_and_fit() {
+        let (mut tl, track, a, b) = two_clips();
+        assert_eq!(
+            tl.set_clip_transition(a, Some(crossfade(500))),
+            Err(EditError::InvalidTransition(
+                TransitionError::NoPreviousClip
+            ))
+        );
+        assert_eq!(
+            tl.set_clip_transition(b, Some(crossfade(50))),
+            Err(EditError::InvalidTransition(TransitionError::Duration(50)))
+        );
+        assert_eq!(
+            tl.set_clip_transition(b, Some(crossfade(3000))),
+            Ok(()),
+            "3 s fits: b is 3 s long"
+        );
+        let title = tl.add_text_clip(track, 9 * S, S, title("Hi")).unwrap();
+        assert_eq!(
+            tl.set_clip_transition(title, Some(crossfade(500))),
+            Err(EditError::InvalidTransition(TransitionError::NotVideo))
+        );
+    }
+
+    #[test]
+    fn transitions_go_inactive_when_clips_part_and_clamp_when_trimmed() {
+        let (mut tl, track, _, b) = two_clips();
+        tl.set_clip_transition(b, Some(crossfade(2000))).unwrap();
+        assert!(tl.transition_active(track, b));
+        tl.move_clip(b, 7 * S, None).unwrap();
+        assert!(!tl.transition_active(track, b));
+        assert_eq!(
+            tl.resolve(6_500_000).len(),
+            0,
+            "the gap is empty, no transition"
+        );
+        tl.move_clip(b, 6 * S, None).unwrap();
+        tl.trim_clip(b, Edge::End, 6_400_000).unwrap(); // b is now 0.4 s long
+        assert_eq!(
+            tl.resolve(5_850_000).len(),
+            2,
+            "clamped to 0.4 s around the cut"
+        );
+        assert_eq!(tl.resolve(5_700_000).len(), 1);
+    }
+
+    #[test]
+    fn split_halves_cut_together() {
+        let (mut tl, _, _, b) = two_clips();
+        tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
+        let right = tl.split_clip(b, 7 * S).unwrap();
+        let clips = &tl.tracks[0].clips;
+        assert!(
+            clips[1].transition_in.is_some(),
+            "b keeps its transition in"
+        );
+        assert_eq!(clips[2].id, right);
+        assert!(clips[2].transition_in.is_none());
     }
 
     #[test]

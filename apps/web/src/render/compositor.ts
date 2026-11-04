@@ -3,6 +3,7 @@ import { IDENTITY_TRANSFORM, type TextContent, type Transform } from '../engine/
 import type { RendererBackend } from './protocol';
 import { drawText } from './text';
 import { layerMatrix, toClipSpace, type Affine } from './transform';
+import { NO_EFFECT, type TransitionEffect } from './transition';
 
 /**
  * Draws a stack of frames (bottom first) into the output canvas.
@@ -10,7 +11,7 @@ import { layerMatrix, toClipSpace, type Affine } from './transform';
  */
 /** One layer to draw, bottom first: a decoded video frame or a text overlay. */
 export type DrawItem =
-  | { kind: 'video'; sample: VideoSample; transform: Transform }
+  | { kind: 'video'; sample: VideoSample; transform: Transform; effect: TransitionEffect }
   | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
 
 export interface Compositor {
@@ -61,11 +62,22 @@ class Canvas2dCompositor implements Compositor {
         drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
         continue;
       }
-      const { sample, transform } = item;
-      if (transform.opacityPercent === 0) continue;
-      const m = layerMatrix(sample.displayWidth, sample.displayHeight, width, height, transform);
+      const { sample, transform, effect } = item;
+      const opacity = (transform.opacityPercent / 100) * effect.opacity;
+      const [revealFrom, revealTo] = effect.reveal;
+      if (opacity === 0 || revealTo <= revealFrom) continue;
+      const m = shifted(
+        layerMatrix(sample.displayWidth, sample.displayHeight, width, height, transform),
+        effect.offsetX * width,
+      );
       this.ctx.save();
-      this.ctx.globalAlpha = transform.opacityPercent / 100;
+      if (revealFrom > 0 || revealTo < 1) {
+        // Wipe: only the revealed band of the canvas is drawn.
+        this.ctx.beginPath();
+        this.ctx.rect(revealFrom * width, 0, (revealTo - revealFrom) * width, height);
+        this.ctx.clip();
+      }
+      this.ctx.globalAlpha = opacity;
       this.ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
       sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
       this.ctx.restore();
@@ -193,7 +205,8 @@ class WebGpuCompositor implements Compositor {
       videoFrames.push(videoFrame);
       // Text frames are full-canvas; video frames use the clip's transform.
       const transform = item.kind === 'video' ? item.transform : IDENTITY_TRANSFORM;
-      const matrix =
+      const effect = item.kind === 'video' ? item.effect : NO_EFFECT;
+      const matrix = shifted(
         item.kind === 'video'
           ? layerMatrix(
               item.sample.displayWidth,
@@ -202,13 +215,20 @@ class WebGpuCompositor implements Compositor {
               height,
               transform,
             )
-          : layerMatrix(width, height, width, height, transform);
+          : layerMatrix(width, height, width, height, transform),
+        effect.offsetX * width,
+      );
       const uniform = this.uniforms[i]!;
       this.device.queue.writeBuffer(
         uniform,
         0,
-        quadUniform(matrix, width, height, transform.opacityPercent / 100),
+        quadUniform(matrix, width, height, (transform.opacityPercent / 100) * effect.opacity),
       );
+      // Wipe: limit drawing to the revealed band (whole pixels, at least one wide).
+      const from = Math.floor(effect.reveal[0] * width);
+      const to = Math.ceil(effect.reveal[1] * width);
+      if (to <= from) return;
+      pass.setScissorRect(from, 0, to - from, height);
 
       const bindGroup = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(0),
@@ -220,6 +240,8 @@ class WebGpuCompositor implements Compositor {
       });
       pass.setBindGroup(0, bindGroup);
       pass.draw(4);
+      // The scissor persists for later draws in this pass: restore the full canvas.
+      pass.setScissorRect(0, 0, width, height);
     });
 
     pass.end();
@@ -334,4 +356,9 @@ async function selfTest(
 function quadUniform(pixels: Affine, width: number, height: number, opacity: number) {
   const m = toClipSpace(pixels, width, height);
   return new Float32Array([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0]);
+}
+
+/** Move a placement right by `dx` canvas pixels (slide transitions). */
+function shifted(m: Affine, dx: number): Affine {
+  return dx === 0 ? m : { ...m, e: m.e + dx };
 }

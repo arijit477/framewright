@@ -9,6 +9,7 @@ import {
   snap,
   timeToX,
   trackRows,
+  transitionWindow,
   trackTop,
   TRACK_HEIGHT,
   xToTime,
@@ -149,5 +150,41 @@ describe('multiple tracks', () => {
   it('limits vertical scrolling to the content', () => {
     expect(maxScrollY(3, 1000)).toBe(0);
     expect(maxScrollY(10, 300)).toBe(trackTop(10) + 6 - 300);
+  });
+});
+
+describe('transitionWindow', () => {
+  const clip = (id: number, start: number, seconds: number, patch: object = {}) => ({
+    id,
+    assetId: 'a',
+    start: secondsToMicros(start),
+    duration: secondsToMicros(seconds),
+    sourceIn: 0,
+    sourceDuration: secondsToMicros(60),
+    volumePercent: 100,
+    muted: false,
+    ...patch,
+  });
+  const fade = { transitionIn: { kind: 'crossfade' as const, durationMs: 1000 } };
+
+  it('is centred on the cut', () => {
+    expect(transitionWindow(clip(1, 0, 6), clip(2, 6, 3, fade))).toEqual([
+      secondsToMicros(5.5),
+      secondsToMicros(6.5),
+    ]);
+  });
+
+  it('is clamped to the shorter clip', () => {
+    expect(transitionWindow(clip(1, 0, 6), clip(2, 6, 0.4, fade))).toEqual([
+      secondsToMicros(5.8),
+      secondsToMicros(6.2),
+    ]);
+  });
+
+  it('is inactive when the clips do not touch, or for titles', () => {
+    expect(transitionWindow(clip(1, 0, 5), clip(2, 6, 3, fade))).toBeNull();
+    expect(transitionWindow(undefined, clip(2, 6, 3, fade))).toBeNull();
+    const title = { text: { text: 'Hi', style: {} as never } };
+    expect(transitionWindow(clip(1, 0, 6, title), clip(2, 6, 3, fade))).toBeNull();
   });
 });

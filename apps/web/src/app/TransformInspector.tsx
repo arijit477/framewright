@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
+import { TransitionField } from './TransitionField';
 import { setClipTransform } from '../store/editor';
 
 const COMMIT_DELAY_MS = 400;
@@ -116,6 +117,8 @@ export function TransformInspector({ clip }: { clip: Clip }) {
           ))}
         </div>
       </div>
+
+      <TransitionField clip={clip} />
 
       <button
         onClick={() => change(IDENTITY_TRANSFORM, { now: true })}

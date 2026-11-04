@@ -182,6 +182,12 @@ export class EditorPage {
     await this.page.mouse.up();
   }
 
+  /** Set the selected clip's transition from the clip before it ('none' removes it). */
+  async setTransition(kind: 'none' | 'crossfade' | 'dip' | 'slide' | 'wipe', lengthMs?: number) {
+    await this.page.getByLabel('Transition in').selectOption(kind);
+    if (lengthMs) await this.page.getByLabel('Length').selectOption(String(lengthMs));
+  }
+
   /** Add a title at the current playhead and type its text. */
   async addTitle(text: string) {
     await this.press('t');
