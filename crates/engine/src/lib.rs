@@ -10,6 +10,7 @@
 
 pub mod text;
 pub mod timeline;
+pub mod transform;
 pub mod wasm;
 
 pub use timeline::{
