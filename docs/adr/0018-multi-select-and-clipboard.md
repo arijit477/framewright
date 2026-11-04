@@ -35,8 +35,7 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
 ## Consequences
 
 - No project format change.
-- Not yet: moving a selection across tracks,
-  editing several clips' settings at once, and pasting between tabs (the system clipboard
+- Not yet: moving a selection across tracks, and pasting between tabs (the system clipboard
   would also need the media).
 
 ## Alternatives considered
@@ -67,3 +66,19 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
 - With ripple on, it inserts. The engine's new `insert_space(tracks, at, length)` first opens a
   gap the length of the selection on the selection's tracks (later clips move along), so the
   copies land in line. It refuses, changing nothing, when a clip runs across the insertion point.
+
+## Addendum: editing several clips at once
+
+- With several clips selected, the clip panel shows the settings they share: **speed, volume and
+  mute** for media clips, and **colour** (white balance, LUT and intensity, brightness, contrast,
+  saturation, looks) for clips with a picture. Titles are left out, and audio-only clips get no
+  colour; the panel says how many clips each section affects.
+- **A change sets only that setting** on every clip (`setClipsColor(ids, patch)` and friends in
+  `store/editor.ts`), so changing brightness on three clips keeps each one's own saturation and
+  LUT. Each change is one undo step for all the clips.
+- **Values that differ read "Mixed"** (slider readouts and `aria-valuetext`, a "Mixed" entry in
+  the Speed and LUT menus, `aria-pressed="mixed"` on Mute). Controls start at the main clip's
+  value, and a look counts as chosen only when every clip matches it.
+- **Speed with ripple:** clips are processed latest first, so each one's shift composes.
+- **Per-clip only:** transform, keyframes and transitions stay single-clip; the panel says so.
+- M (mute) now applies to the whole selection: it mutes all, or unmutes all if all are muted.

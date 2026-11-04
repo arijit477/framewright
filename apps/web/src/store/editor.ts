@@ -25,6 +25,7 @@ import {
   timelineTimeOf,
 } from '../lib/keyframes';
 import { cleanLutName, lutUsage } from '../lib/luts';
+import { NEUTRAL_COLOR } from '../render/color';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
@@ -454,11 +455,6 @@ export function removeUnusedLuts(): number {
   const unused = Object.keys(get().luts).filter((id) => !usage.has(id));
   if (unused.length > 0) removeLuts(unused);
   return unused.length;
-}
-
-/** Apply a project LUT to a clip (or remove it with null). One undo step. */
-export function setClipLut(clipId: number, lut: LutRef | null): boolean {
-  return edit((e) => e.setClipLut(clipId, lut));
 }
 
 /**
@@ -964,11 +960,6 @@ export function resetTransform(clipId: number): boolean {
   });
 }
 
-/** Set a media clip's brightness, contrast and saturation. */
-export function setClipColor(clipId: number, color: ColorAdjust): boolean {
-  return edit((e) => e.setClipColor(clipId, color));
-}
-
 export function setKeyframeEasing(clipId: number, sourceTime: Micros, easing: Easing): boolean {
   return edit((e) => e.setKeyframeEasing(clipId, sourceTime, easing));
 }
@@ -1030,22 +1021,70 @@ export function cancelGesture(): void {
   refresh();
 }
 
-/** Change a clip's playback speed (percent); its length on the timeline follows. */
-export function setClipSpeed(clipId: number, percent: number): boolean {
+// ---------------------------------------------------------------- clip settings, one or many clips
+
+/**
+ * Each setter below applies to every clip it's given, as one undo step, and
+ * changes only the setting it's about (so changing several clips' brightness
+ * keeps each one's own saturation, LUT and so on).
+ */
+function clipsByIds(ids: readonly number[]): Clip[] {
+  const wanted = new Set(ids);
+  return get().timeline.tracks.flatMap((t) => t.clips.filter((c) => wanted.has(c.id)));
+}
+
+/** Change some colour values, keeping each clip's others. */
+export function setClipsColor(ids: readonly number[], patch: Partial<ColorAdjust>): boolean {
+  const clips = clipsByIds(ids);
+  return edit((e) => {
+    for (const c of clips) e.setClipColor(c.id, { ...NEUTRAL_COLOR, ...c.color, ...patch });
+  });
+}
+
+/** Apply a project LUT (or remove it, with null). */
+export function setClipsLut(ids: readonly number[], lut: LutRef | null): boolean {
+  return edit((e) => {
+    for (const id of ids) e.setClipLut(id, lut);
+  });
+}
+
+/** Change how strongly each clip's own LUT applies (clips without one are left alone). */
+export function setClipsLutIntensity(ids: readonly number[], intensityPercent: number): boolean {
+  const clips = clipsByIds(ids).filter((c) => c.lut);
+  return edit((e) => {
+    for (const c of clips) e.setClipLut(c.id, { lutId: c.lut!.lutId, intensityPercent });
+  });
+}
+
+/**
+ * Change playback speed (percent); each clip's length follows. With ripple,
+ * later clips move along: done latest first, so every clip's shift composes.
+ */
+export function setClipsSpeed(ids: readonly number[], percent: number): boolean {
   const ripple = get().ripple;
-  return edit((e) =>
-    ripple ? e.setClipSpeedRipple(clipId, percent) : e.setClipSpeed(clipId, percent),
-  );
+  const clips = clipsByIds(ids).sort((a, b) => b.start - a.start);
+  return edit((e) => {
+    for (const c of clips) {
+      if (ripple) e.setClipSpeedRipple(c.id, percent);
+      else e.setClipSpeed(c.id, percent);
+    }
+  });
 }
 
-export function setClipVolume(clipId: number, percent: number) {
-  edit((e) => e.setClipVolume(clipId, percent));
+export function setClipsVolume(ids: readonly number[], percent: number): boolean {
+  return edit((e) => {
+    for (const id of ids) e.setClipVolume(id, percent);
+  });
 }
 
-export function toggleMute(clipId: number) {
-  const clip = selectedClip();
-  if (clip?.id !== clipId) return;
-  edit((e) => e.setClipMuted(clipId, !clip.muted));
+/** Mute the clips, or unmute them if they're all muted already (M). */
+export function toggleMuteClips(ids: readonly number[]): boolean {
+  const clips = clipsByIds(ids).filter((c) => !c.text);
+  if (clips.length === 0) return false;
+  const mute = !clips.every((c) => c.muted);
+  return edit((e) => {
+    for (const c of clips) e.setClipMuted(c.id, mute);
+  });
 }
 
 export function setView(view: Partial<View>) {

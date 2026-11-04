@@ -8,8 +8,7 @@ import {
   paste,
   selectAll,
   importFiles,
-  selectedClip,
-  toggleMute,
+  toggleMuteClips,
   initEditor,
   redo,
   splitAtPlayhead,
@@ -100,11 +99,9 @@ export function App() {
           splitAtPlayhead();
           break;
         case 'm':
-        case 'M': {
-          const clip = selectedClip();
-          if (clip) toggleMute(clip.id);
+        case 'M':
+          toggleMuteClips(useEditor.getState().selectedClipIds);
           break;
-        }
         case 't':
         case 'T':
           addText();
