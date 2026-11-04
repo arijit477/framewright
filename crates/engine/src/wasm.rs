@@ -7,6 +7,7 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::text::{TextContent, TextStyle};
 use crate::timeline::{Edge, EditError, Micros, Timeline, TrackKind};
 
 fn to_micros(value: f64) -> Micros {
@@ -142,6 +143,33 @@ impl Engine {
     #[wasm_bindgen(js_name = setClipMuted)]
     pub fn set_clip_muted(&mut self, clip_id: u32, muted: bool) -> Result<(), JsError> {
         self.timeline.set_clip_muted(clip_id, muted).map_err(err)
+    }
+
+    /// Add a text clip; `content` is `{ text, style }` (see `text.rs`).
+    #[wasm_bindgen(js_name = addTextClip)]
+    pub fn add_text_clip(
+        &mut self,
+        track_id: u32,
+        start: f64,
+        duration: f64,
+        content: JsValue,
+    ) -> Result<u32, JsError> {
+        let content: TextContent = serde_wasm_bindgen::from_value(content)?;
+        self.timeline
+            .add_text_clip(track_id, to_micros(start), to_micros(duration), content)
+            .map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = setClipText)]
+    pub fn set_clip_text(&mut self, clip_id: u32, content: JsValue) -> Result<(), JsError> {
+        let content: TextContent = serde_wasm_bindgen::from_value(content)?;
+        self.timeline.set_clip_text(clip_id, content).map_err(err)
+    }
+
+    /// The default style for new titles, so the UI doesn't duplicate it.
+    #[wasm_bindgen(js_name = defaultTextStyle)]
+    pub fn default_text_style() -> Result<JsValue, JsError> {
+        to_js(&TextStyle::default())
     }
 
     /// Audible segments overlapping `[from, to)`, for the audio mixer.
