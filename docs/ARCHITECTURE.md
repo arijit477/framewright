@@ -260,6 +260,18 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
 
+## Ripple editing
+
+See [ADR 0017](./adr/0017-ripple-editing.md).
+
+- **Engine:** `ripple_delete`, `trim_clip_ripple` and `set_clip_speed_ripple` move the later clips
+  on the edited track by exactly how far its end moved (`shift_from`). A ripple trim keeps the
+  clip's start in place. Each is one validated, undoable edit.
+- **UI:** a Ripple toggle in the toolbar (per browser) applies to delete, trim and speed.
+  Shift+Delete always ripples. While trimming, `trimPreview` (`timeline/geometry.ts`) draws the
+  later clips following the edge.
+- Other tracks don't move (no sync-lock yet).
+
 ## Speed
 
 See [ADR 0016](./adr/0016-speed-control.md).
@@ -272,7 +284,8 @@ See [ADR 0016](./adr/0016-speed-control.md).
   splits and the audio extensions under transitions.
 - **Audio:** segments carry `speed`. `SourceStream` time-stretches with WSOLA
   (`audio/time-stretch.ts`) so the pitch is kept, in both playback and export.
-- **UI:** a Speed menu beside the clip's volume. The timeline label and track list show the speed.
+- **UI:** a Speed menu in the clip panel's Clip section (with volume and mute). The timeline label
+  and track list show the speed.
 
 ## Keyframes
 

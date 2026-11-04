@@ -267,7 +267,9 @@ pub enum EditError {
     InvalidVolume(u16),
     #[error("speed {0}% is out of range ({MIN_SPEED_PERCENT}-{MAX_SPEED_PERCENT}%)")]
     InvalidSpeed(u16),
-    #[error("there isn't room for the slower clip: make space after it first")]
+    #[error(
+        "there isn't room for the slower clip: make space after it, or turn on ripple editing"
+    )]
     NoRoomToSlowDown,
     #[error("invalid project data: {0}")]
     InvalidProject(String),
@@ -633,6 +635,29 @@ impl Timeline {
         Ok(self.tracks[t].clips.remove(c))
     }
 
+    /// Remove a clip and close the space it leaves: later clips on its track
+    /// move back by its length (other gaps and tracks are left as they are).
+    pub fn ripple_delete(&mut self, clip_id: ClipId) -> Result<Clip, EditError> {
+        let (t, c) = self.locate(clip_id)?;
+        let clip = self.tracks[t].clips.remove(c);
+        self.shift_from(t, c, -clip.duration);
+        Ok(clip)
+    }
+
+    /// Move the clips of track `t` from index `from` onwards by `delta`.
+    ///
+    /// Callers only shift the clips after an edited clip by exactly how much
+    /// its end moved, so order is kept and nothing can overlap or go below 0.
+    fn shift_from(&mut self, t: usize, from: usize, delta: Micros) {
+        if delta == 0 {
+            return;
+        }
+        for clip in &mut self.tracks[t].clips[from..] {
+            clip.start += delta;
+            debug_assert!(clip.start >= 0, "ripple moved a clip before 0");
+        }
+    }
+
     /// Move a clip to `new_start`, optionally onto another track of the same kind.
     pub fn move_clip(
         &mut self,
@@ -662,14 +687,43 @@ impl Timeline {
 
     /// Move one edge of a clip to the timeline time `at`.
     pub fn trim_clip(&mut self, clip_id: ClipId, edge: Edge, at: Micros) -> Result<(), EditError> {
+        self.trim(clip_id, edge, at, false)
+    }
+
+    /// Trim with ripple: the clip stays where it starts and the later clips on
+    /// its track follow its end. Trimming the start edge to `at` cuts (or, to
+    /// the left, restores) that much of the clip's beginning.
+    pub fn trim_clip_ripple(
+        &mut self,
+        clip_id: ClipId,
+        edge: Edge,
+        at: Micros,
+    ) -> Result<(), EditError> {
+        self.trim(clip_id, edge, at, true)
+    }
+
+    fn trim(
+        &mut self,
+        clip_id: ClipId,
+        edge: Edge,
+        at: Micros,
+        ripple: bool,
+    ) -> Result<(), EditError> {
         let (t, c) = self.locate(clip_id)?;
         let clip = self.tracks[t].clips[c].clone();
         let (start, duration, source_in) = match edge {
             Edge::Start => {
-                // The earliest the clip can start is where source time 0 would land.
-                let at = at.max(clip.start - clip.to_timeline(clip.source_in)).max(0);
+                // The furthest the head can extend is to source time 0 (and,
+                // without ripple, to timeline time 0).
+                let earliest = clip.start - clip.to_timeline(clip.source_in);
+                let at = if ripple {
+                    at.max(earliest)
+                } else {
+                    at.max(earliest).max(0)
+                };
                 let duration = clip.end() - at;
-                (at, duration, clip.source_at(at).max(0))
+                let start = if ripple { clip.start } else { at };
+                (start, duration, clip.source_at(at).max(0))
             }
             Edge::End => (clip.start, at - clip.start, clip.source_in),
         };
@@ -678,14 +732,18 @@ impl Timeline {
         {
             return Err(EditError::InvalidDuration);
         }
-        if !self.tracks[t].is_free(start, start + duration, Some(clip_id)) {
+        if !ripple && !self.tracks[t].is_free(start, start + duration, Some(clip_id)) {
             return Err(EditError::Overlap);
         }
-        let clip = &mut self.tracks[t].clips[c];
-        clip.start = start;
-        clip.duration = duration;
-        clip.source_in = source_in;
-        // Start never moves past another clip (overlap check), so order is preserved.
+        let edited = &mut self.tracks[t].clips[c];
+        edited.start = start;
+        edited.duration = duration;
+        edited.source_in = source_in;
+        // Without ripple, the overlap check keeps the order; with it, the later
+        // clips move by exactly as much as the end did.
+        if ripple {
+            self.shift_from(t, c + 1, start + duration - clip.end());
+        }
         Ok(())
     }
 
@@ -795,6 +853,20 @@ impl Timeline {
     /// Change a media clip's speed, keeping the same media: the clip gets
     /// shorter when faster and longer when slower (if there is room after it).
     pub fn set_clip_speed(&mut self, clip_id: ClipId, percent: u16) -> Result<(), EditError> {
+        self.set_speed(clip_id, percent, false)
+    }
+
+    /// Change speed with ripple: the later clips on the track follow the
+    /// clip's new end, so slowing down always has room.
+    pub fn set_clip_speed_ripple(
+        &mut self,
+        clip_id: ClipId,
+        percent: u16,
+    ) -> Result<(), EditError> {
+        self.set_speed(clip_id, percent, true)
+    }
+
+    fn set_speed(&mut self, clip_id: ClipId, percent: u16, ripple: bool) -> Result<(), EditError> {
         if !(MIN_SPEED_PERCENT..=MAX_SPEED_PERCENT).contains(&percent) {
             return Err(EditError::InvalidSpeed(percent));
         }
@@ -808,12 +880,16 @@ impl Timeline {
         if duration < MIN_CLIP_DURATION {
             return Err(EditError::InvalidDuration);
         }
-        if !self.tracks[t].is_free(clip.start, clip.start + duration, Some(clip_id)) {
+        if !ripple && !self.tracks[t].is_free(clip.start, clip.start + duration, Some(clip_id)) {
             return Err(EditError::NoRoomToSlowDown);
         }
+        let delta = duration - clip.duration;
         let clip = &mut self.tracks[t].clips[c];
         clip.speed_percent = percent;
         clip.duration = duration;
+        if ripple {
+            self.shift_from(t, c + 1, delta);
+        }
         Ok(())
     }
 
@@ -1819,5 +1895,128 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Track with a (0-2 s, media from 1 s of 10 s), b (2-4 s) and c (6-7 s),
+    /// plus another track with d (1-5 s).
+    fn ripple_timeline() -> (Timeline, [ClipId; 4]) {
+        let mut tl = Timeline::new();
+        let v = tl.add_track(TrackKind::Video);
+        let other = tl.add_track(TrackKind::Video);
+        let a = tl.add_clip(v, "a", 0, 2 * S, S, 10 * S).unwrap();
+        let b = tl.add_clip(v, "b", 2 * S, 2 * S, 0, 10 * S).unwrap();
+        let c = tl.add_clip(v, "c", 6 * S, S, 0, 10 * S).unwrap();
+        let d = tl.add_clip(other, "d", S, 4 * S, 0, 10 * S).unwrap();
+        (tl, [a, b, c, d])
+    }
+
+    fn starts(tl: &Timeline) -> Vec<(ClipId, Micros, Micros)> {
+        tl.tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .map(|c| (c.id, c.start, c.duration))
+            .collect()
+    }
+
+    #[test]
+    fn ripple_delete_closes_the_clip_s_space_on_its_track_only() {
+        let (mut tl, [a, b, c, d]) = ripple_timeline();
+        tl.ripple_delete(b).unwrap();
+        // c moves back by b's length; the 2 s gap before it stays; d doesn't move.
+        assert_eq!(starts(&tl), [(a, 0, 2 * S), (c, 4 * S, S), (d, S, 4 * S)]);
+    }
+
+    #[test]
+    fn ripple_trimming_the_end_moves_later_clips_with_it() {
+        let (mut tl, [a, b, c, d]) = ripple_timeline();
+        tl.trim_clip_ripple(a, Edge::End, S).unwrap();
+        assert_eq!(
+            starts(&tl),
+            [(a, 0, S), (b, S, 2 * S), (c, 5 * S, S), (d, S, 4 * S)]
+        );
+        // Lengthening pushes them out, where a plain trim would hit b.
+        assert_eq!(tl.trim_clip(a, Edge::End, 2 * S), Err(EditError::Overlap));
+        tl.trim_clip_ripple(a, Edge::End, 3 * S).unwrap();
+        assert_eq!(
+            starts(&tl),
+            [
+                (a, 0, 3 * S),
+                (b, 3 * S, 2 * S),
+                (c, 7 * S, S),
+                (d, S, 4 * S)
+            ]
+        );
+    }
+
+    #[test]
+    fn ripple_trimming_the_start_keeps_the_clip_in_place() {
+        let (mut tl, [a, b, c, _]) = ripple_timeline();
+        // Cut half a second off the beginning: a stays at 0 and is shorter.
+        tl.trim_clip_ripple(a, Edge::Start, S / 2).unwrap();
+        let clip = &tl.tracks[0].clips[0];
+        assert_eq!(
+            (clip.start, clip.duration, clip.source_in),
+            (0, 3 * S / 2, 3 * S / 2)
+        );
+        assert_eq!(tl.tracks[0].clips[1].start, 3 * S / 2);
+        // Restore past the original in-point: as far as the media goes (source 0).
+        tl.trim_clip_ripple(a, Edge::Start, -5 * S).unwrap();
+        let clip = &tl.tracks[0].clips[0];
+        assert_eq!((clip.start, clip.duration, clip.source_in), (0, 3 * S, 0));
+        assert_eq!(starts(&tl)[1..3], [(b, 3 * S, 2 * S), (c, 7 * S, S)]);
+    }
+
+    #[test]
+    fn ripple_keeps_transitions_between_touching_clips() {
+        let (mut tl, [a, b, _, _]) = ripple_timeline();
+        let fade = Transition {
+            kind: crate::transition::TransitionKind::Crossfade,
+            duration_ms: 500,
+        };
+        tl.set_clip_transition(b, Some(fade)).unwrap();
+        let track = tl.tracks[0].id;
+        tl.trim_clip_ripple(a, Edge::End, 3 * S / 2).unwrap();
+        assert!(tl.transition_active(track, b));
+        tl.trim_clip_ripple(a, Edge::Start, S / 2).unwrap();
+        assert!(tl.transition_active(track, b));
+    }
+
+    #[test]
+    fn ripple_speed_changes_push_or_pull_later_clips() {
+        let (mut tl, [a, b, c, d]) = ripple_timeline();
+        assert_eq!(tl.set_clip_speed(a, 50), Err(EditError::NoRoomToSlowDown));
+        tl.set_clip_speed_ripple(a, 50).unwrap();
+        assert_eq!(
+            starts(&tl),
+            [
+                (a, 0, 4 * S),
+                (b, 4 * S, 2 * S),
+                (c, 8 * S, S),
+                (d, S, 4 * S)
+            ]
+        );
+        tl.set_clip_speed_ripple(a, 200).unwrap();
+        assert_eq!(starts(&tl)[1], (b, S, 2 * S));
+    }
+
+    #[test]
+    fn failed_ripple_edits_change_nothing() {
+        let (mut tl, [a, ..]) = ripple_timeline();
+        let before = tl.clone();
+        assert_eq!(
+            tl.trim_clip_ripple(a, Edge::End, 1000),
+            Err(EditError::InvalidDuration)
+        );
+        assert_eq!(
+            tl.trim_clip_ripple(a, Edge::End, 20 * S),
+            Err(EditError::InvalidDuration),
+            "past the end of the media"
+        );
+        assert_eq!(
+            tl.set_clip_speed_ripple(a, 10),
+            Err(EditError::InvalidSpeed(10))
+        );
+        assert_eq!(tl.ripple_delete(999), Err(EditError::ClipNotFound(999)));
+        assert_eq!(tl, before);
     }
 }

@@ -152,3 +152,27 @@ export function transitionWindow(before: Clip | undefined, clip: Clip): [number,
   const duration = Math.min(transition.durationMs * 1000, clip.duration, before.duration);
   return [clip.start - duration / 2, clip.start + duration / 2];
 }
+
+/**
+ * How a trim drag is drawn: the edited clip's span, where its media is
+ * anchored (the timeline time that would show `sourceIn`), and how far the
+ * later clips on its track move. Mirrors the engine's `trim` / `trim_ripple`.
+ * With ripple, the clip stays where it starts: trimming its start cuts (or
+ * restores) its beginning and the rest of the track follows its end.
+ */
+export function trimPreview(
+  clip: Clip,
+  edge: 'start' | 'end',
+  at: number,
+  ripple: boolean,
+): { start: number; end: number; origin: number; shift: number } {
+  const end = clipEnd(clip);
+  if (edge === 'end') {
+    const newEnd = Math.max(at, clip.start);
+    return { start: clip.start, end: newEnd, origin: clip.start, shift: ripple ? newEnd - end : 0 };
+  }
+  const cut = Math.min(at, end) - clip.start;
+  return ripple
+    ? { start: clip.start, end: end - cut, origin: clip.start - cut, shift: -cut }
+    : { start: clip.start + cut, end, origin: clip.start, shift: 0 };
+}

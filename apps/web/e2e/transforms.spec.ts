@@ -23,7 +23,7 @@ test.describe('transforms', () => {
     await editor.importFixtures(FIXTURES.overlay); // red, appended at 6-9 s
     await editor.dragClip(0, 7.5, { toSeconds: 1.5, toRow: 'new-top' }); // red on top, 0-3 s
     await editor.clickClip(0, 1.5); // select it
-    await expect(editor.page.getByRole('complementary', { name: 'Transform' })).toBeVisible();
+    await expect(editor.page.getByRole('region', { name: 'Transform' })).toBeVisible();
   });
 
   const exportAt = async (seconds: number, crop: ReturnType<typeof region>) => {

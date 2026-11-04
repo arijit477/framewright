@@ -58,6 +58,22 @@ export interface EditorState {
   audioClock: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /**
+   * Ripple editing: deleting, trimming and speed changes move the later clips
+   * on the same track along. A per-browser preference, not part of projects.
+   */
+  ripple: boolean;
+}
+
+const RIPPLE_KEY = 'framewright.ripple';
+
+/** Storage can be unavailable (private mode, blocked site data): fall back to off. */
+function loadRipple(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(RIPPLE_KEY) === 'on';
+  } catch {
+    return false;
+  }
 }
 
 export const useEditor = create<EditorState>(() => ({
@@ -70,6 +86,7 @@ export const useEditor = create<EditorState>(() => ({
   playhead: 0,
   playing: false,
   selectedClipId: null,
+  ripple: loadRipple(),
   view: { pxPerSecond: 60, scrollUs: 0, scrollY: 0 },
   importing: 0,
   message: null,
@@ -502,14 +519,28 @@ export function splitAtPlayhead() {
   edit((e) => e.splitClip(target.id, playhead));
 }
 
-export function deleteSelected() {
+/**
+ * Delete the selected clip. With ripple (the toggle, or Shift+Delete), the
+ * later clips on its track move back to close the space it leaves.
+ */
+export function deleteSelected({ ripple = get().ripple }: { ripple?: boolean } = {}) {
   const { selectedClipId } = get();
   if (selectedClipId === null) return;
   const removed = edit((e) => {
-    e.removeClip(selectedClipId);
+    if (ripple) e.rippleDelete(selectedClipId);
+    else e.removeClip(selectedClipId);
     e.pruneEmptyTracks(); // same undo step: undo brings the track back too
   });
   if (removed) set({ selectedClipId: null });
+}
+
+export function setRipple(on: boolean): void {
+  set({ ripple: on });
+  try {
+    globalThis.localStorage?.setItem(RIPPLE_KEY, on ? 'on' : 'off');
+  } catch {
+    // Not remembered, but still on for this session.
+  }
 }
 
 /**
@@ -745,7 +776,10 @@ export function cancelGesture(): void {
 
 /** Change a clip's playback speed (percent); its length on the timeline follows. */
 export function setClipSpeed(clipId: number, percent: number): boolean {
-  return edit((e) => e.setClipSpeed(clipId, percent));
+  const ripple = get().ripple;
+  return edit((e) =>
+    ripple ? e.setClipSpeedRipple(clipId, percent) : e.setClipSpeed(clipId, percent),
+  );
 }
 
 export function setClipVolume(clipId: number, percent: number) {

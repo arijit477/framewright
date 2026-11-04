@@ -1,9 +1,10 @@
 import { useRef } from 'react';
 import { formatTimecode } from '../lib/time';
-import { ClipAudio, LevelMeter } from './ClipAudio';
+import { LevelMeter } from './LevelMeter';
 import {
   addText,
   deleteSelected,
+  setRipple,
   importFiles,
   redo,
   setView,
@@ -21,6 +22,7 @@ export function Toolbar() {
   const playhead = useEditor((s) => s.playhead);
   const duration = useEditor((s) => s.duration);
   const hasSelection = useEditor((s) => s.selectedClipId !== null);
+  const ripple = useEditor((s) => s.ripple);
   const canUndo = useEditor((s) => s.canUndo);
   const canRedo = useEditor((s) => s.canRedo);
   const pxPerSecond = useEditor((s) => s.view.pxPerSecond);
@@ -68,14 +70,28 @@ export function Toolbar() {
         </span>
       </div>
 
-      <ClipAudio />
-
       <div className="group">
         <button onClick={splitAtPlayhead} disabled={duration === 0} title="Split at playhead (S)">
           Split
         </button>
-        <button onClick={deleteSelected} disabled={!hasSelection} title="Delete clip (Delete)">
+        <button
+          onClick={() => deleteSelected()}
+          disabled={!hasSelection}
+          title={
+            ripple
+              ? 'Delete clip and close the gap (Delete)'
+              : 'Delete clip (Delete; Shift+Delete closes the gap)'
+          }
+        >
           Delete
+        </button>
+        <button
+          onClick={() => setRipple(!ripple)}
+          aria-pressed={ripple}
+          className={ripple ? 'active' : ''}
+          title="Ripple editing: deleting, trimming and changing speed move the later clips on the track along"
+        >
+          Ripple
         </button>
         <label className="zoom">
           Zoom

@@ -223,36 +223,6 @@ button.active {
   border-color: var(--danger);
 }
 
-.clip-audio input[type='range'],
-.zoom input[type='range'] {
-  width: 96px;
-}
-
-.speed {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-}
-
-.clip-audio .volume {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-}
-
-.volume-value {
-  font:
-    12px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  min-width: 4ch;
-  text-align: right;
-  color: var(--text);
-}
-
 .meter {
   display: grid;
   gap: 2px;
@@ -599,6 +569,9 @@ button.danger-quiet {
 .inspector-section {
   display: grid;
   gap: 12px;
+}
+
+.inspector-section + .inspector-section {
   padding-top: 14px;
   border-top: 1px solid var(--border);
 }

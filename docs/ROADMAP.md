@@ -55,7 +55,9 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] LUTs, temperature/tint; plugin API for effects
 - [x] Speed control (0.25×–4×) with audio pitch preservation
 - [ ] Speed ramps, reverse playback
-- [ ] Ripple delete, magnetic timeline, multi-select, copy/paste
+- [x] Ripple editing: delete, trim and speed changes close or open space on the track
+- [ ] Sync-lock (ripple linked clips on other tracks), close a selected gap
+- [ ] Multi-select, copy/paste
 - [ ] Proxy media for 4K sources
 
 ## Phase 3: Smart features (v0.3.0)

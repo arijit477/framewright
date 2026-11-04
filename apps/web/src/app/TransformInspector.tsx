@@ -66,89 +66,91 @@ export function TransformInspector({ clip }: { clip: Clip }) {
   const flush = () => debouncer.flush();
 
   return (
-    <aside className="inspector" aria-label="Transform">
-      <h2>Transform</h2>
-      <Slider
-        label="Position X"
-        unit="%"
-        value={draft.x / 10}
-        min={0}
-        max={100}
-        step={0.5}
-        onChange={(v) => change({ x: Math.round(v * 10) })}
-        onCommit={flush}
-      />
-      <Slider
-        label="Position Y"
-        unit="%"
-        value={draft.y / 10}
-        min={0}
-        max={100}
-        step={0.5}
-        onChange={(v) => change({ y: Math.round(v * 10) })}
-        onCommit={flush}
-      />
-      <Slider
-        label="Scale"
-        unit="%"
-        value={draft.scalePercent}
-        min={10}
-        max={400}
-        onChange={(v) => change({ scalePercent: v })}
-        onCommit={flush}
-      />
-      <Slider
-        label="Rotation"
-        unit="°"
-        value={draft.rotationDeg}
-        min={-180}
-        max={180}
-        onChange={(v) => change({ rotationDeg: v })}
-        onCommit={flush}
-      />
-      <Slider
-        label="Opacity"
-        unit="%"
-        value={draft.opacityPercent}
-        min={0}
-        max={100}
-        onChange={(v) => change({ opacityPercent: v })}
-        onCommit={flush}
-      />
+    <>
+      <section className="inspector-section" aria-label="Transform">
+        <h2>Transform</h2>
+        <Slider
+          label="Position X"
+          unit="%"
+          value={draft.x / 10}
+          min={0}
+          max={100}
+          step={0.5}
+          onChange={(v) => change({ x: Math.round(v * 10) })}
+          onCommit={flush}
+        />
+        <Slider
+          label="Position Y"
+          unit="%"
+          value={draft.y / 10}
+          min={0}
+          max={100}
+          step={0.5}
+          onChange={(v) => change({ y: Math.round(v * 10) })}
+          onCommit={flush}
+        />
+        <Slider
+          label="Scale"
+          unit="%"
+          value={draft.scalePercent}
+          min={10}
+          max={400}
+          onChange={(v) => change({ scalePercent: v })}
+          onCommit={flush}
+        />
+        <Slider
+          label="Rotation"
+          unit="°"
+          value={draft.rotationDeg}
+          min={-180}
+          max={180}
+          onChange={(v) => change({ rotationDeg: v })}
+          onCommit={flush}
+        />
+        <Slider
+          label="Opacity"
+          unit="%"
+          value={draft.opacityPercent}
+          min={0}
+          max={100}
+          onChange={(v) => change({ opacityPercent: v })}
+          onCommit={flush}
+        />
 
-      <KeyframeField clip={clip} flush={flush} />
+        <KeyframeField clip={clip} flush={flush} />
 
-      <div className="field">
-        Picture in picture
-        <div className="pip-grid" role="group" aria-label="Picture in picture">
-          {PIP_PRESETS.map((p) => (
-            <button
-              key={p.label}
-              onClick={() => change({ ...p, scalePercent: PIP_SCALE }, { now: true })}
-              aria-label={`Picture in picture, ${p.label.toLowerCase()}`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="field">
+          Picture in picture
+          <div className="pip-grid" role="group" aria-label="Picture in picture">
+            {PIP_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => change({ ...p, scalePercent: PIP_SCALE }, { now: true })}
+                aria-label={`Picture in picture, ${p.label.toLowerCase()}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <TransitionField clip={clip} />
+        <TransitionField clip={clip} />
 
-      <button
-        onClick={() => {
-          debouncer.cancel();
-          resetTransform(clip.id);
-        }}
-        disabled={!animated && savedKey === JSON.stringify(IDENTITY_TRANSFORM)}
-        title={animated ? 'Reset the transform and remove all keyframes' : undefined}
-      >
-        Reset transform
-      </button>
-      <p className="muted inspector-tip">Tip: drag the clip in the preview to move it.</p>
+        <button
+          onClick={() => {
+            debouncer.cancel();
+            resetTransform(clip.id);
+          }}
+          disabled={!animated && savedKey === JSON.stringify(IDENTITY_TRANSFORM)}
+          title={animated ? 'Reset the transform and remove all keyframes' : undefined}
+        >
+          Reset transform
+        </button>
+        <p className="muted inspector-tip">Tip: drag the clip in the preview to move it.</p>
+      </section>
 
       <ColorField clip={clip} />
-    </aside>
+    </>
   );
 }
 
@@ -159,6 +161,7 @@ export function Slider(props: {
   min: number;
   max: number;
   step?: number;
+  disabled?: boolean;
   onChange: (value: number) => void;
   onCommit: () => void;
 }) {
@@ -179,6 +182,7 @@ export function Slider(props: {
         min={props.min}
         max={props.max}
         step={props.step ?? 1}
+        disabled={props.disabled}
         value={Math.min(props.max, Math.max(props.min, props.value))}
         onChange={(e) => props.onChange(Number(e.target.value))}
         onPointerUp={props.onCommit}
