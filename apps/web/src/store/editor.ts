@@ -24,6 +24,7 @@ import {
   sourceTimeAt,
   timelineTimeOf,
 } from '../lib/keyframes';
+import type { Caption } from '../captions/segments';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
 import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
@@ -947,6 +948,39 @@ export function addText(text = 'Your text'): void {
     });
   });
   if (added && created !== null) selectClip(created);
+}
+
+/**
+ * Add recognised captions as titles on a new top video track, in one undo
+ * step, styled to be readable over any picture (smaller than a title, on a
+ * dark box, near the bottom, no fades). Returns the new track's id.
+ */
+export function addCaptions(captions: readonly Caption[]): number | null {
+  let trackId: number | null = null;
+  const added = edit((e) => {
+    const defaults = e.defaultTextStyle();
+    const style = {
+      ...defaults,
+      size: 52,
+      background: '#000000b3',
+      y: 880,
+      animationIn: 'none' as const,
+      animationOut: 'none' as const,
+    };
+    trackId = e.addTrack('video');
+    for (const c of captions) {
+      e.addTextClip(trackId, c.startUs, c.endUs - c.startUs, { text: c.text, style });
+    }
+  });
+  return added ? trackId : null;
+}
+
+/** A track's titles as captions (for .srt / .vtt files), in time order. */
+export function trackCaptions(trackId: number): Caption[] {
+  const track = get().timeline.tracks.find((t) => t.id === trackId);
+  return (track?.clips ?? [])
+    .filter((c) => c.text)
+    .map((c) => ({ text: c.text!.text, startUs: c.start, endUs: clipEnd(c) }));
 }
 
 /** Replace a text clip's content and style (validated by the engine). */

@@ -759,3 +759,55 @@ button.toggle {
   outline: 2px solid var(--accent-hover);
   outline-offset: -2px;
 }
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+fieldset.field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+fieldset.field legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+.error-text {
+  color: #fda4af;
+  margin: 0;
+}
+
+.captions-form {
+  display: grid;
+  gap: 14px;
+}
+
+.captions-form h2,
+.captions-form p {
+  margin: 0;
+}
+
+.captions-form .field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.captions-form .radio {
+  color: var(--text);
+}
+
+.captions-form select {
+  font: inherit;
+  color: var(--text);
+  background: #1f1f29;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}

@@ -71,7 +71,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 
 ## Phase 3: Smart features (v0.3.0)
 
-- [ ] Auto-captions with local Whisper (WebGPU), word highlighting, SRT export
+- [x] Auto-captions with local Whisper (in the browser, on the device), SRT and WebVTT export
+- [ ] Word-by-word caption highlighting; WebGPU-accelerated recognition; translation
 - [ ] Silence detection and one-click removal
 - [ ] Aspect-ratio presets (9:16, 1:1, 16:9) with smart reframing
 - [ ] Background removal (segmentation model, permissive licence only)
