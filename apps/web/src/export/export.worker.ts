@@ -28,6 +28,8 @@ import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
 import { openAsset } from '../media/asset';
 import { drawItems } from '../render/compose';
+import type { Lut } from '../render/lut';
+import type { LutData } from '../render/protocol';
 import { createCompositor } from '../render/compositor';
 import { FrameReader } from '../render/frame-reader';
 import { ReaderPool } from '../render/reader-pool';
@@ -65,11 +67,15 @@ scope.onmessage = (event) => {
   const message = event.data;
   if (message.type === 'cancel') cancelled = true;
   if (message.type === 'start') {
-    run(message.projectJson, message.assets, message.settings, message.destination).catch(
-      (error: unknown) => {
-        send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
-      },
-    );
+    run(
+      message.projectJson,
+      message.assets,
+      message.luts,
+      message.settings,
+      message.destination,
+    ).catch((error: unknown) => {
+      send({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+    });
   }
 };
 
@@ -78,12 +84,14 @@ class Cancelled extends Error {}
 async function run(
   projectJson: string,
   assets: ExportAsset[],
+  lutList: LutData[],
   settings: ExportSettings,
   destination: ExportDestination,
 ) {
   const startedAt = performance.now();
   const warnings: string[] = [];
   const engine = await TimelineEngine.fromJson(projectJson);
+  const luts = new Map<string, Lut>(lutList.map(({ id, size, data }) => [id, { size, data }]));
   const videoTracks = new Map<string, InputVideoTrack>();
   const readers = new ReaderPool((assetId) => {
     const track = videoTracks.get(assetId);
@@ -182,7 +190,7 @@ async function run(
 
       // Video: resolve the layers, decode, composite, encode.
       const layers = engine.resolve(frameTimeUs(i, settings.fps));
-      compositor.draw(await drawItems(layers, readers));
+      compositor.draw(await drawItems(layers, readers, luts));
       await videoSource.add(i / settings.fps, 1 / settings.fps);
 
       // Audio: keep it level with the video so the muxer can interleave.

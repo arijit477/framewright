@@ -6,6 +6,7 @@ import {
   type Transform,
 } from '../engine/types';
 import { adjustPixels, colorParams, cssFilter, isNeutral, NEUTRAL_COLOR } from './color';
+import { lutPixels, makeLut, toHalf, type Lut } from './lut';
 import type { RendererBackend } from './protocol';
 import { drawText } from './text';
 import { layerMatrix, toClipSpace, type Affine } from './transform';
@@ -22,6 +23,8 @@ export type DrawItem =
       sample: VideoSample;
       transform: Transform;
       color: ColorAdjust;
+      /** Applied before `color`; null for none. */
+      lut: { lut: Lut; intensity: number } | null;
       effect: TransitionEffect;
     }
   | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
@@ -82,7 +85,7 @@ class Canvas2dCompositor implements Compositor {
         drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
         continue;
       }
-      const { sample, transform, color, effect } = item;
+      const { sample, transform, color, lut, effect } = item;
       const opacity = (transform.opacityPercent / 100) * effect.opacity;
       const [revealFrom, revealTo] = effect.reveal;
       if (opacity === 0 || revealTo <= revealFrom) continue;
@@ -99,29 +102,45 @@ class Canvas2dCompositor implements Compositor {
       }
       this.ctx.globalAlpha = opacity;
       this.ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
-      if (isNeutral(color)) {
+      // LUT first (by hand), then the adjustments (by the browser where it can).
+      const filterByBrowser = this.canvasFilters && !isNeutral(color);
+      if (filterByBrowser) this.ctx.filter = cssFilter(color); // reset by restore()
+      if (!lut && (isNeutral(color) || filterByBrowser)) {
         sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
-      } else if (this.canvasFilters) {
-        this.ctx.filter = cssFilter(color); // reset by restore()
-        sample.draw(this.ctx, 0, 0, 1, 1);
       } else {
-        this.ctx.drawImage(this.adjusted(sample, color), 0, 0, 1, 1);
+        const byHand = filterByBrowser || isNeutral(color) ? null : color;
+        this.ctx.drawImage(this.processed(sample, lut, byHand), 0, 0, 1, 1);
       }
       this.ctx.restore();
     }
   }
 
-  /** Fallback: the frame at full size with its pixels adjusted in JavaScript (slow but exact). */
-  private adjusted(sample: VideoSample, color: ColorAdjust): OffscreenCanvas {
-    const width = sample.displayWidth;
-    const height = sample.displayHeight;
+  /**
+   * The frame with its pixels processed in JavaScript: the LUT, and the colour
+   * adjustments where the browser has no canvas filters. Done at the frame's
+   * size, but never above the output canvas (a 4K source in a 1080p export is
+   * processed at 1080p).
+   */
+  private processed(
+    sample: VideoSample,
+    lut: { lut: Lut; intensity: number } | null,
+    color: ColorAdjust | null,
+  ): OffscreenCanvas {
+    const scale = Math.min(
+      1,
+      this.canvas.width / sample.displayWidth,
+      this.canvas.height / sample.displayHeight,
+    );
+    const width = Math.max(1, Math.round(sample.displayWidth * scale));
+    const height = Math.max(1, Math.round(sample.displayHeight * scale));
     if (!this.scratch || this.scratch.width !== width || this.scratch.height !== height) {
       this.scratch = new OffscreenCanvas(width, height);
     }
     const ctx = this.scratch.getContext('2d', { willReadFrequently: true })!;
     sample.draw(ctx, 0, 0, width, height);
     const pixels = ctx.getImageData(0, 0, width, height);
-    adjustPixels(pixels.data, color);
+    if (lut) lutPixels(pixels.data, lut.lut, lut.intensity);
+    if (color) adjustPixels(pixels.data, color);
     ctx.putImageData(pixels, 0, 0);
     return this.scratch;
   }
@@ -131,11 +150,14 @@ const SHADER = /* wgsl */ `
 // Affine transform from the unit square (the source frame, y down) to clip space:
 // position = (m.x·u + m.z·v + t.x, m.y·u + m.w·v + t.y); t.z is the layer opacity.
 // Computed by layerMatrix() + toClipSpace() in transform.ts (shared with Canvas 2D).
-// c = (brightness, contrast, saturation, unused): the CSS filter maths of render/color.ts.
+// c = (brightness, contrast, saturation, LUT intensity): render/color.ts and render/lut.ts.
 struct Quad { m: vec4f, t: vec4f, c: vec4f };
 @group(0) @binding(0) var<uniform> quad: Quad;
 @group(0) @binding(1) var frameSampler: sampler;
 @group(0) @binding(2) var frame: texture_external;
+// The layer's LUT (an identity LUT, at intensity 0, for layers without one).
+@group(0) @binding(3) var lut: texture_3d<f32>;
+@group(0) @binding(4) var lutSampler: sampler;
 
 struct VsOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
 
@@ -161,11 +183,21 @@ fn adjust(rgb: vec3f) -> vec3f {
   return clamp(luma + (contrasted - luma) * quad.c.z, vec3f(0), vec3f(1));
 }
 
+// Trilinear lookup (the hardware filter), sampling entry centres, blended by intensity.
+fn graded(rgb: vec3f) -> vec3f {
+  let n = f32(textureDimensions(lut).x);
+  let uvw = (clamp(rgb, vec3f(0), vec3f(1)) * (n - 1.0) + 0.5) / n;
+  return mix(rgb, textureSampleLevel(lut, lutSampler, uvw, 0.0).rgb, quad.c.w);
+}
+
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let colour = textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
-  return vec4f(adjust(colour.rgb), colour.a * quad.t.z);
+  return vec4f(adjust(graded(colour.rgb)), colour.a * quad.t.z);
 }
 `;
+
+/** LUT textures kept around when unused (a few MB each at most). */
+const MAX_CACHED_LUTS = 8;
 
 /** Max layers drawn in one pass; each needs its own uniform slot. */
 const MAX_LAYERS = 16;
@@ -184,7 +216,20 @@ class WebGpuCompositor implements Compositor {
     private readonly pipeline: GPURenderPipeline,
     private readonly sampler: GPUSampler,
     private readonly uniforms: GPUBuffer[],
+    private readonly identityLut: GPUTexture,
   ) {}
+
+  /** GPU copies of the LUTs in use, created on first use. */
+  private readonly lutTextures = new Map<Lut, GPUTexture>();
+
+  private lutTexture(lut: Lut): GPUTexture {
+    let texture = this.lutTextures.get(lut);
+    if (!texture) {
+      texture = createLutTexture(this.device, lut);
+      this.lutTextures.set(lut, texture);
+    }
+    return texture;
+  }
 
   static async create(canvas: OffscreenCanvas): Promise<WebGpuCompositor | null> {
     if (!('gpu' in navigator) || !navigator.gpu) return null;
@@ -228,7 +273,8 @@ class WebGpuCompositor implements Compositor {
     const context = canvas.getContext('webgpu');
     if (!context) return null;
     context.configure({ device, format, alphaMode: 'opaque' });
-    return new WebGpuCompositor(canvas, device, context, pipeline, sampler, uniforms);
+    const identity = createLutTexture(device, makeLut(2));
+    return new WebGpuCompositor(canvas, device, context, pipeline, sampler, uniforms, identity);
   }
 
   /** Text is drawn here, then uploaded like a video frame (same, self-tested pipeline). */
@@ -250,6 +296,7 @@ class WebGpuCompositor implements Compositor {
     pass.setPipeline(this.pipeline);
 
     const videoFrames: VideoFrame[] = [];
+    const used = new Set<Lut>();
     items.slice(0, MAX_LAYERS).forEach((item, i) => {
       const videoFrame = item.kind === 'video' ? item.sample.toVideoFrame() : this.textFrame(item);
       if (!videoFrame) return;
@@ -279,8 +326,12 @@ class WebGpuCompositor implements Compositor {
           height,
           (transform.opacityPercent / 100) * effect.opacity,
           item.kind === 'video' ? item.color : NEUTRAL_COLOR,
+          item.kind === 'video' ? (item.lut?.intensity ?? 0) : 0,
         ),
       );
+      const lut =
+        item.kind === 'video' && item.lut ? this.lutTexture(item.lut.lut) : this.identityLut;
+      if (item.kind === 'video' && item.lut) used.add(item.lut.lut);
       // Wipe: limit drawing to the revealed band (whole pixels, at least one wide).
       const from = Math.floor(effect.reveal[0] * width);
       const to = Math.ceil(effect.reveal[1] * width);
@@ -293,6 +344,8 @@ class WebGpuCompositor implements Compositor {
           { binding: 0, resource: { buffer: uniform } },
           { binding: 1, resource: this.sampler },
           { binding: 2, resource: this.device.importExternalTexture({ source: videoFrame }) },
+          { binding: 3, resource: lut.createView() },
+          { binding: 4, resource: this.sampler },
         ],
       });
       pass.setBindGroup(0, bindGroup);
@@ -307,6 +360,14 @@ class WebGpuCompositor implements Compositor {
     // submit() can release the texture before the queued draw runs.
     void this.device.queue.onSubmittedWorkDone().then(() => {
       for (const frame of videoFrames) frame.close();
+      // Free the GPU copies of LUTs no longer in use (the project replaced or dropped them).
+      if (this.lutTextures.size > MAX_CACHED_LUTS) {
+        for (const [lut, texture] of this.lutTextures) {
+          if (used.has(lut)) continue;
+          texture.destroy();
+          this.lutTextures.delete(lut);
+        }
+      }
     });
   }
 
@@ -326,12 +387,13 @@ class WebGpuCompositor implements Compositor {
 }
 
 /**
- * Draw a solid red VideoFrame (desaturated to black and white), then a fully
- * transparent one on top, through the production pipeline into a 4x4
- * texture, and read it back. The result must be red's grey (luma 0.213, about
- * 54 of 255): that proves video frames import correctly, that transparency
- * survives (text overlays rely on it) *and* that the colour maths matches
- * Canvas 2D. Returns false on any error or wrong colour, so the caller falls
+ * Draw a solid red VideoFrame through an inverting LUT (making it cyan) and
+ * desaturated to black and white, then a fully transparent frame on top,
+ * through the production pipeline into a 4x4 texture, and read it back. The
+ * result must be cyan's grey (luma 0.715 + 0.072, about 201 of 255). That
+ * proves video frames import correctly, transparency survives (text overlays
+ * rely on it), and the LUT lookup and colour maths match Canvas 2D, in the
+ * same order. Returns false on any error or wrong colour, so the caller falls
  * back to Canvas 2D.
  */
 async function selfTest(
@@ -351,8 +413,13 @@ async function selfTest(
   const clear = new OffscreenCanvas(size, size);
   clear.getContext('2d')?.clearRect(0, 0, size, size);
   const transparent = new VideoFrame(clear, { timestamp: 0, alpha: 'keep' });
+  let invert: GPUTexture | null = null;
   try {
     device.pushErrorScope('validation');
+    invert = createLutTexture(
+      device,
+      makeLut(2, (r, g, b) => [1 - r, 1 - g, 1 - b]),
+    );
     const target = device.createTexture({
       size: [size, size],
       format,
@@ -361,11 +428,14 @@ async function selfTest(
     device.queue.writeBuffer(
       uniform,
       0,
-      quadUniform(layerMatrix(size, size, size, size, IDENTITY_TRANSFORM), size, size, 1, {
-        brightness: 0,
-        contrast: 0,
-        saturation: -100,
-      }),
+      quadUniform(
+        layerMatrix(size, size, size, size, IDENTITY_TRANSFORM),
+        size,
+        size,
+        1,
+        { brightness: 0, contrast: 0, saturation: -100 },
+        1,
+      ),
     );
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -383,6 +453,8 @@ async function selfTest(
             { binding: 0, resource: { buffer: uniform } },
             { binding: 1, resource: sampler },
             { binding: 2, resource: device.importExternalTexture({ source: layer }) },
+            { binding: 3, resource: invert.createView() },
+            { binding: 4, resource: sampler },
           ],
         }),
       );
@@ -405,23 +477,52 @@ async function selfTest(
     readback.unmap();
     target.destroy();
     // Grey, so the channel order (rgba or bgra) doesn't matter.
-    return pixel.every((v) => Math.abs(v - 0.213 * 255) < 8);
+    return pixel.every((v) => Math.abs(v - (0.715 + 0.072) * 255) < 8);
   } catch (error) {
     console.warn('WebGPU self-test failed', error);
     return false;
   } finally {
     frame.close();
     transparent.close();
+    invert?.destroy();
   }
 }
 
-/** The shader's uniform: clip-space matrix, layer opacity and colour adjustments (12 floats). */
+/**
+ * A LUT as a 3D texture (red along x, green along y, blue along z), in
+ * half-float so the hardware filters it trilinearly at good precision.
+ */
+function createLutTexture(device: GPUDevice, lut: Lut): GPUTexture {
+  const n = lut.size;
+  const texture = device.createTexture({
+    size: [n, n, n],
+    dimension: '3d',
+    format: 'rgba16float',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  const halves = new Uint16Array(n * n * n * 4);
+  for (let i = 0, j = 0; i < lut.data.length; i += 3, j += 4) {
+    halves[j] = toHalf(lut.data[i]!);
+    halves[j + 1] = toHalf(lut.data[i + 1]!);
+    halves[j + 2] = toHalf(lut.data[i + 2]!);
+    halves[j + 3] = 0x3c00; // 1.0
+  }
+  device.queue.writeTexture({ texture }, halves, { bytesPerRow: n * 8, rowsPerImage: n }, [
+    n,
+    n,
+    n,
+  ]);
+  return texture;
+}
+
+/** The shader's uniform: clip-space matrix, opacity, colour adjustments and LUT intensity (12 floats). */
 function quadUniform(
   pixels: Affine,
   width: number,
   height: number,
   opacity: number,
   color: ColorAdjust = NEUTRAL_COLOR,
+  lutIntensity = 0,
 ) {
   const m = toClipSpace(pixels, width, height);
   const c = colorParams(color);
@@ -437,7 +538,7 @@ function quadUniform(
     c.brightness,
     c.contrast,
     c.saturation,
-    0,
+    lutIntensity,
   ]);
 }
 

@@ -16,12 +16,21 @@ export interface AssetInfo {
 
 export type RendererBackend = 'webgpu' | 'canvas2d';
 
+/** A decoded project LUT, as sent to the workers. */
+export interface LutData {
+  id: string;
+  size: number;
+  data: Float32Array;
+}
+
 /** Main thread -> render worker. */
 export type ToWorker =
   | { type: 'init'; canvas: OffscreenCanvas }
   | { type: 'addAsset'; id: string; file: File }
   /** Drop every asset (switching projects). */
   | { type: 'clearAssets' }
+  /** Replace the project's LUTs. */
+  | { type: 'setLuts'; luts: LutData[] }
   | { type: 'render'; requestId: number; layers: Layer[] };
 
 /** Render worker -> main thread. */

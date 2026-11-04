@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { FIXTURES, fixture } from './media';
 
 /**
@@ -41,6 +41,18 @@ export default function globalSetup() {
       '-f lavfi -i sine=frequency=880:sample_rate=48000:duration=3 ' +
       '-filter_complex concat=n=2:v=0:a=1',
   );
+  // A 17-point 3D LUT that swaps red and blue and lifts green: every colour bar changes.
+  if (!existsSync(fixture(FIXTURES.lut))) {
+    const n = 17;
+    const rows: string[] = [];
+    for (let b = 0; b < n; b++)
+      for (let g = 0; g < n; g++)
+        for (let r = 0; r < n; r++) {
+          const [rr, gg, bb] = [r / (n - 1), g / (n - 1), b / (n - 1)];
+          rows.push(`${bb.toFixed(6)} ${Math.sqrt(gg).toFixed(6)} ${rr.toFixed(6)}`);
+        }
+    writeFileSync(fixture(FIXTURES.lut), `TITLE "Swap"\nLUT_3D_SIZE ${n}\n${rows.join('\n')}\n`);
+  }
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.
   make(
     FIXTURES.audio,

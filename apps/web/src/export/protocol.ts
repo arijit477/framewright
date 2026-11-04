@@ -1,3 +1,4 @@
+import type { LutData } from '../render/protocol';
 import type { ExportSettings } from './settings';
 
 /** Folder in browser storage (OPFS) where exports are written before download. */
@@ -15,6 +16,8 @@ export type ToExportWorker =
       /** The project as saved by the engine; the worker renders this snapshot. */
       projectJson: string;
       assets: ExportAsset[];
+      /** The project LUTs its clips use. */
+      luts: LutData[];
       settings: ExportSettings;
       destination: ExportDestination;
     }

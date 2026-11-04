@@ -1,5 +1,5 @@
 import type { Layer } from '../engine/types';
-import type { AssetInfo, FromWorker, RendererBackend, ToWorker } from './protocol';
+import type { AssetInfo, FromWorker, LutData, RendererBackend, ToWorker } from './protocol';
 
 type Listener = (stats: { backend: RendererBackend | null; lastFrameMs: number }) => void;
 
@@ -31,6 +31,11 @@ export class RenderClient {
       this.assetWaiters.set(id, { resolve, reject });
       this.post({ type: 'addAsset', id, file });
     });
+  }
+
+  /** Replace the project's LUTs (sent whenever they change). */
+  setLuts(luts: LutData[]): void {
+    this.post({ type: 'setLuts', luts });
   }
 
   /** Release every decoder (e.g. when another project is opened). */

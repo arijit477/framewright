@@ -7,9 +7,11 @@
  * load); this layer owns the envelope and the media metadata.
  */
 
+import { MAX_LUT_SIZE, MIN_LUT_SIZE } from '../render/lut';
+
 export const PROJECT_FORMAT = 'framewright.project';
 /** Bump when the shape changes, and add a migration from the previous version. */
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 export const DEFAULT_PROJECT_NAME = 'Untitled project';
 export const MAX_NAME_LENGTH = 100;
 
@@ -29,6 +31,23 @@ export interface ProjectAsset {
   hasAudio: boolean;
 }
 
+/**
+ * A LUT imported into the project. Stored here (not in the timeline, which
+ * is snapshotted on every edit for undo); clips refer to it by `id`.
+ */
+export interface ProjectLut {
+  id: string;
+  /** The `.cube` title, or its file name. */
+  name: string;
+  /** Entries per side. */
+  size: number;
+  /** The entries as 16-bit integers, little-endian, base64 (see render/lut.ts). */
+  data: string;
+}
+
+/** Bounds a hand-edited project; generated ids are much shorter. */
+const MAX_LUT_ID_LENGTH = 64;
+
 export interface ProjectDocument {
   format: typeof PROJECT_FORMAT;
   version: typeof PROJECT_VERSION;
@@ -42,6 +61,8 @@ export interface ProjectDocument {
   /** The engine's serialised timeline, or null for a project that was never edited. */
   timeline: unknown;
   assets: ProjectAsset[];
+  /** LUTs imported into the project (version 2+). */
+  luts: ProjectLut[];
 }
 
 export interface ProjectSummary {
@@ -68,6 +89,7 @@ export function createProject(id: string, now: Date, name = DEFAULT_PROJECT_NAME
     durationUs: 0,
     timeline: null,
     assets: [],
+    luts: [],
   };
 }
 
@@ -112,7 +134,10 @@ function migrate(doc: Record<string, unknown>, from: number): Record<string, unk
   let current = doc;
   for (let version = from; version < PROJECT_VERSION; version++) {
     switch (version) {
-      // No migrations yet: version 1 is the first format.
+      case 1:
+        // Version 2 added LUTs.
+        current = { ...current, luts: [] };
+        break;
       default:
         throw new ProjectFormatError(`No migration from project version ${version}.`);
     }
@@ -131,6 +156,9 @@ function validate(raw: Record<string, unknown>): ProjectDocument {
   const ids = new Set(assets.map((a) => a.id));
   if (ids.size !== assets.length)
     throw new ProjectFormatError('The project lists a media file twice.');
+  const luts = field('luts', Array.isArray).map(validateLut);
+  if (new Set(luts.map((l) => l.id)).size !== luts.length)
+    throw new ProjectFormatError('The project lists a LUT twice.');
 
   return {
     format: PROJECT_FORMAT,
@@ -142,6 +170,28 @@ function validate(raw: Record<string, unknown>): ProjectDocument {
     durationUs: field('durationUs', isNonNegativeNumber),
     timeline: raw.timeline === null || isRecord(raw.timeline) ? raw.timeline : invalid('timeline'),
     assets,
+    luts,
+  };
+}
+
+function validateLut(value: unknown, index: number): ProjectLut {
+  const ok =
+    isRecord(value) &&
+    isNonEmptyString(value.id) &&
+    value.id.length <= MAX_LUT_ID_LENGTH &&
+    isString(value.name) &&
+    Number.isInteger(value.size) &&
+    (value.size as number) >= MIN_LUT_SIZE &&
+    (value.size as number) <= MAX_LUT_SIZE &&
+    isString(value.data) &&
+    // base64 of size³ RGB entries, 2 bytes each.
+    value.data.length === Math.ceil(((value.size as number) ** 3 * 6) / 3) * 4;
+  if (!ok) throw new ProjectFormatError(`LUT ${index + 1} is invalid.`);
+  return {
+    id: value.id as string,
+    name: value.name as string,
+    size: value.size as number,
+    data: value.data as string,
   };
 }
 

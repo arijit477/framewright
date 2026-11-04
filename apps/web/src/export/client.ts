@@ -1,3 +1,4 @@
+import type { LutData } from '../render/protocol';
 import type {
   ExportAsset,
   ExportDestination,
@@ -25,6 +26,7 @@ export class ExportJob {
   constructor(
     projectJson: string,
     assets: ExportAsset[],
+    luts: LutData[],
     settings: ExportSettings,
     destination: ExportDestination,
     private readonly callbacks: ExportCallbacks,
@@ -33,7 +35,7 @@ export class ExportJob {
     this.worker.onmessage = (event: MessageEvent<FromExportWorker>) => this.handle(event.data);
     this.worker.onerror = (event) =>
       this.finish(() => callbacks.onError(event.message || 'Export worker crashed'));
-    this.post({ type: 'start', projectJson, assets, settings, destination });
+    this.post({ type: 'start', projectJson, assets, luts, settings, destination });
   }
 
   cancel(): void {

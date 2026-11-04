@@ -27,6 +27,8 @@ export interface Clip {
   keyframes?: Keyframe[];
   /** Colour adjustments of a media clip; omitted when unchanged. */
   color?: ColorAdjust;
+  /** A LUT applied before `color`; omitted when none. */
+  lut?: LutRef;
   /** Transition from the clip directly before (inactive unless they touch). */
   transitionIn?: Transition;
 }
@@ -74,6 +76,13 @@ export interface ColorAdjust {
 }
 
 export const COLOR_LIMIT = 100;
+
+/** Mirrors `LutRef` in crates/engine/src/color.rs: a project LUT applied to a clip. */
+export interface LutRef {
+  lutId: string;
+  /** 0 (no effect) to 100 (fully applied). */
+  intensityPercent: number;
+}
 
 export type Easing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 
@@ -164,6 +173,8 @@ export interface Layer {
   transform: Transform;
   /** Colour adjustments; omitted when unchanged. */
   color?: ColorAdjust;
+  /** LUT, applied before `color`; omitted when none. */
+  lut?: LutRef;
   /** Set while this layer is part of a transition. */
   transition?: LayerTransition;
 }

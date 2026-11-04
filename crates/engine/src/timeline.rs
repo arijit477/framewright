@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::color::{ColorAdjust, ColorError};
+use crate::color::{ColorAdjust, ColorError, LutRef};
 use crate::keyframe::{self, Easing, Keyframe, KeyframeError, ResolvedTransform};
 use crate::text::{TextContent, TextError};
 use crate::transform::{Transform, TransformError};
@@ -71,6 +71,9 @@ pub struct Clip {
     /// Colour adjustments of a media clip; omitted when unchanged.
     #[serde(default, skip_serializing_if = "ColorAdjust::is_neutral")]
     pub color: ColorAdjust,
+    /// A LUT applied before the colour adjustments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lut: Option<LutRef>,
     /// Transition from the clip directly before this one on the same track.
     /// Inactive (ignored) while the clips aren't touching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -210,6 +213,9 @@ pub struct Layer {
     /// Colour adjustments (omitted when unchanged).
     #[serde(default, skip_serializing_if = "ColorAdjust::is_neutral")]
     pub color: ColorAdjust,
+    /// LUT, applied before `color` (omitted when none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lut: Option<LutRef>,
     /// Set while the layer is part of a transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<LayerTransition>,
@@ -559,6 +565,15 @@ impl Timeline {
         Ok(())
     }
 
+    /// Apply (or remove, with `None`) a LUT on a media clip.
+    pub fn set_clip_lut(&mut self, clip_id: ClipId, lut: Option<LutRef>) -> Result<(), EditError> {
+        if let Some(lut) = &lut {
+            lut.validate()?;
+        }
+        self.media_clip_mut(clip_id)?.lut = lut;
+        Ok(())
+    }
+
     /// A media clip's transform at timeline time `at` (animated if it has
     /// keyframes; held before the first and after the last).
     pub fn clip_transform_at(
@@ -616,6 +631,7 @@ impl Timeline {
             transform: Transform::default(),
             keyframes: Vec::new(),
             color: ColorAdjust::default(),
+            lut: None,
             transition_in: None,
         });
         Ok(id)
@@ -1179,6 +1195,7 @@ fn clip_layer(
         text: clip.text.clone(),
         transform: clip_transform(clip, at),
         color: clip.color,
+        lut: clip.lut.clone(),
         transition,
     }
 }
@@ -2242,6 +2259,38 @@ mod tests {
                 ..pasted.clone()
             },
             original
+        );
+    }
+
+    #[test]
+    fn luts_are_set_resolved_saved_and_copied() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        let lut = LutRef {
+            lut_id: "teal".to_owned(),
+            intensity_percent: 60,
+        };
+        tl.set_clip_lut(clip, Some(lut.clone())).unwrap();
+        assert_eq!(tl.resolve(3 * S)[0].lut, Some(lut.clone()));
+        assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
+        let right = tl.split_clip(clip, 4 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[1].id, right);
+        assert_eq!(tl.tracks[0].clips[1].lut, Some(lut));
+        tl.set_clip_lut(clip, None).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].lut, None);
+
+        let text = tl.add_text_clip(track, 9 * S, S, title("Hi")).unwrap();
+        let any = LutRef {
+            lut_id: "x".to_owned(),
+            intensity_percent: 10,
+        };
+        assert_eq!(tl.set_clip_lut(text, Some(any)), Err(EditError::NotMedia));
+        let bad = LutRef {
+            lut_id: String::new(),
+            intensity_percent: 10,
+        };
+        assert_eq!(
+            tl.set_clip_lut(clip, Some(bad)),
+            Err(EditError::InvalidColor(ColorError::LutId))
         );
     }
 }

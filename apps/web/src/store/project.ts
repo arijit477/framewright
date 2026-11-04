@@ -136,7 +136,7 @@ export async function openProject(id: string, { quiet = false } = {}): Promise<b
         if (file) files.set(asset.id, file);
       }),
     );
-    await loadProject({ timeline: doc.timeline, assets: doc.assets, files });
+    await loadProject({ timeline: doc.timeline, assets: doc.assets, luts: doc.luts, files });
     releaseLock = release;
     scheduler.reset();
     set({
@@ -162,7 +162,7 @@ export async function newProject(): Promise<void> {
   await closeCurrent();
   const doc = createProject(crypto.randomUUID(), new Date());
   releaseLock = await acquireLock(doc.id);
-  await loadProject({ timeline: null, assets: [], files: new Map() });
+  await loadProject({ timeline: null, assets: [], luts: [], files: new Map() });
   scheduler.reset();
   set({
     current: { id: doc.id, name: doc.name, createdAt: doc.createdAt },
@@ -382,7 +382,7 @@ async function saveNow(): Promise<void> {
     persistenceRequested = true;
     void ProjectStorage.requestPersistence();
   }
-  const { timeline, durationUs, assets } = snapshotProject();
+  const { timeline, durationUs, assets, luts } = snapshotProject();
   const doc: ProjectDocument = {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
@@ -393,6 +393,7 @@ async function saveNow(): Promise<void> {
     durationUs,
     timeline,
     assets,
+    luts,
   };
   await storage.write(doc);
 }
