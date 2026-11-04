@@ -6,6 +6,7 @@ import type {
   TextStyle,
   TimelineSnapshot,
   Transform,
+  Transition,
 } from './types';
 
 /**
@@ -78,6 +79,14 @@ export class TimelineEngine {
 
   setClipText(clipId: number, content: TextContent): void {
     this.inner.setClipText(clipId, content);
+  }
+
+  setClipTransition(clipId: number, transition: Transition | null): void {
+    this.inner.setClipTransition(clipId, transition);
+  }
+
+  transitionActive(trackId: number, clipId: number): boolean {
+    return this.inner.transitionActive(trackId, clipId);
   }
 
   setClipTransform(clipId: number, transform: Transform): void {

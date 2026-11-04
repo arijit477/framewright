@@ -140,3 +140,15 @@ export function peakToHeight(peak: number): number {
   const db = 20 * Math.log10(peak);
   return Math.min(1, Math.max(0, 1 - db / WAVEFORM_FLOOR_DB));
 }
+
+/**
+ * The span an active transition covers on the timeline, mirroring the
+ * engine's rule (touching media clips; clamped to both clips' lengths).
+ */
+export function transitionWindow(before: Clip | undefined, clip: Clip): [number, number] | null {
+  const transition = clip.transitionIn;
+  if (!transition || !before || clipEnd(before) !== clip.start || clip.text || before.text)
+    return null;
+  const duration = Math.min(transition.durationMs * 1000, clip.duration, before.duration);
+  return [clip.start - duration / 2, clip.start + duration / 2];
+}

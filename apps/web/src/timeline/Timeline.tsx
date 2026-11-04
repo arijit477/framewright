@@ -20,6 +20,7 @@ import {
   hitTest,
   maxScrollY,
   peakToHeight,
+  transitionWindow,
   RULER_HEIGHT,
   snap,
   timeToX,
@@ -311,6 +312,19 @@ function paint(
       if (moving?.clip.id === clip.id && movesAway(track.id)) continue;
       drawClip(ctx, state, drag, { clip, kind: track.kind, top, width });
     }
+    // Transitions sit on the cuts, over both clips (hidden while either is being dragged).
+    track.clips.forEach((clip, index) => {
+      const before = track.clips[index - 1];
+      if (
+        !drag ||
+        drag.kind === 'scrub' ||
+        (drag.clip.id !== clip.id && drag.clip.id !== before?.id)
+      ) {
+        const window = transitionWindow(before, clip);
+        if (window)
+          drawTransitionMarker(ctx, timeToX(window[0], view), timeToX(window[1], view), top);
+      }
+    });
     // A clip being dragged here from another track is previewed on this row.
     if (
       moving?.target.type === 'track' &&
@@ -630,4 +644,38 @@ function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, are
 function clipLabel(clip: Clip, assetName: string | undefined): string {
   if (clip.text) return `T  ${clip.text.text.split('\n')[0]}`;
   return assetName ?? 'Clip';
+}
+
+/** A pill across the transition with a bowtie icon, centred on the cut. */
+function drawTransitionMarker(
+  ctx: CanvasRenderingContext2D,
+  left: number,
+  right: number,
+  top: number,
+) {
+  const height = 18;
+  const y = top + TRACK_HEIGHT / 2 - height / 2;
+  const width = Math.max(right - left, 18);
+  const x = (left + right) / 2 - width / 2;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, height / 2);
+  ctx.fill();
+  ctx.stroke();
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  ctx.fillStyle = '#4f46e5';
+  ctx.beginPath(); // bowtie: two triangles meeting at the cut
+  ctx.moveTo(cx - 6, cy - 5);
+  ctx.lineTo(cx, cy);
+  ctx.lineTo(cx - 6, cy + 5);
+  ctx.closePath();
+  ctx.moveTo(cx + 6, cy - 5);
+  ctx.lineTo(cx, cy);
+  ctx.lineTo(cx + 6, cy + 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }

@@ -1,7 +1,7 @@
 import { clipEnd } from '../engine/types';
 import { formatTimecode } from '../lib/time';
 import { useEditor } from '../store/editor';
-import { trackRows } from './geometry';
+import { trackRows, transitionWindow } from './geometry';
 
 /**
  * The canvas timeline is invisible to screen readers, so this visually hidden
@@ -21,10 +21,13 @@ export function TrackList() {
         // Number like other editors: Video 1 is the bottom layer, Audio 1 the first audio track.
         const name =
           track.kind === 'video' ? `Video ${videoCount - videoSeen++}` : `Audio ${++audioSeen}`;
-        const clips = track.clips.map(
-          (c) =>
-            `${c.text ? `text “${c.text.text}”` : (assets[c.assetId]?.name ?? 'clip')} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}`,
-        );
+        const clips = track.clips.map((c, i) => {
+          const name = c.text ? `text “${c.text.text}”` : (assets[c.assetId]?.name ?? 'clip');
+          const transition = transitionWindow(track.clips[i - 1], c)
+            ? `${c.transitionIn!.kind} into `
+            : '';
+          return `${transition}${name} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}`;
+        });
         return (
           <li key={track.id} aria-label={name}>
             {name}: {clips.length > 0 ? clips.join('; ') : 'empty'}
