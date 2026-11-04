@@ -4,6 +4,7 @@ import { LevelMeter } from './LevelMeter';
 import {
   addText,
   deleteSelected,
+  duplicateSelected,
   setRipple,
   importFiles,
   redo,
@@ -85,6 +86,13 @@ export function Toolbar() {
           }
         >
           Delete
+        </button>
+        <button
+          onClick={() => duplicateSelected()}
+          disabled={!hasSelection}
+          title="Duplicate the selection right after itself (Ctrl+D)"
+        >
+          Duplicate
         </button>
         <button
           onClick={() => setRipple(!ripple)}

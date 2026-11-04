@@ -61,7 +61,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Sync-lock (ripple linked clips on other tracks), close a selected gap
 - [x] Multi-select (Ctrl/⌘/Shift-click, Ctrl/⌘+A), group move and delete, copy/cut/paste
 - [x] Selection box (drag on empty track space)
-- [ ] Duplicate, editing several clips at once, keyboard selection of clips
+- [x] Duplicate (Ctrl/⌘+D), inserting when ripple editing is on
+- [ ] Editing several clips at once, keyboard selection of clips
 - [ ] Proxy media for 4K sources
 
 ## Phase 3: Smart features (v0.3.0)

@@ -183,6 +183,19 @@ impl Engine {
             .map_err(err)
     }
 
+    /// Open a gap of `length` µs at `at` on the given tracks (later clips move along).
+    #[wasm_bindgen(js_name = insertSpace)]
+    pub fn insert_space(
+        &mut self,
+        track_ids: Vec<u32>,
+        at: f64,
+        length: f64,
+    ) -> Result<(), JsError> {
+        self.timeline
+            .insert_space(&track_ids, to_micros(at), to_micros(length))
+            .map_err(err)
+    }
+
     /// Remove a clip and close the space it leaves on its track.
     #[wasm_bindgen(js_name = rippleDelete)]
     pub fn ripple_delete(&mut self, clip_id: u32) -> Result<(), JsError> {

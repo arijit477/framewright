@@ -283,6 +283,8 @@ pub enum EditError {
     InvalidVolume(u16),
     #[error("speed {0}% is out of range ({MIN_SPEED_PERCENT}-{MAX_SPEED_PERCENT}%)")]
     InvalidSpeed(u16),
+    #[error("a clip runs across the insertion point, so there's no room to insert there")]
+    SpaceCrossesClip(Micros),
     #[error(
         "there isn't room for the slower clip: make space after it, or turn on ripple editing"
     )]
@@ -668,6 +670,40 @@ impl Timeline {
         let clip = self.tracks[t].clips.remove(c);
         self.shift_from(t, c, -clip.duration);
         Ok(clip)
+    }
+
+    /// Open a gap of `length` at timeline time `at` on the given tracks: every
+    /// clip starting at or after `at` moves later by `length` (ripple insert).
+    /// Refused if a clip on one of them runs across `at`, since it can't be
+    /// split implicitly.
+    pub fn insert_space(
+        &mut self,
+        track_ids: &[TrackId],
+        at: Micros,
+        length: Micros,
+    ) -> Result<(), EditError> {
+        if length <= 0 {
+            return Err(EditError::InvalidDuration);
+        }
+        let mut indices = Vec::with_capacity(track_ids.len());
+        for &id in track_ids {
+            let t = self.track_index(id)?;
+            if self.tracks[t]
+                .clips
+                .iter()
+                .any(|c| c.start < at && at < c.end())
+            {
+                return Err(EditError::SpaceCrossesClip(at));
+            }
+            if !indices.contains(&t) {
+                indices.push(t);
+            }
+        }
+        for t in indices {
+            let from = self.tracks[t].clips.partition_point(|c| c.start < at);
+            self.shift_from(t, from, length);
+        }
+        Ok(())
     }
 
     /// Move the clips of track `t` from index `from` onwards by `delta`.
@@ -2291,6 +2327,39 @@ mod tests {
         assert_eq!(
             tl.set_clip_lut(clip, Some(bad)),
             Err(EditError::InvalidColor(ColorError::LutId))
+        );
+    }
+
+    #[test]
+    fn inserting_space_moves_later_clips_on_the_given_tracks_only() {
+        // Track 1: a 0-2, b 2-4, c 6-7. Track 2: d 1-5.
+        let (mut tl, [a, b, c, d]) = ripple_timeline();
+        let first = tl.tracks[0].id;
+        tl.insert_space(&[first, first], 2 * S, 3 * S).unwrap();
+        assert_eq!(
+            starts(&tl),
+            [
+                (a, 0, 2 * S),
+                (b, 5 * S, 2 * S),
+                (c, 9 * S, S),
+                (d, S, 4 * S)
+            ]
+        );
+        // d (1-5 s) runs across 3 s, so nothing moves on either track.
+        let before = tl.clone();
+        let second = tl.tracks[1].id;
+        assert_eq!(
+            tl.insert_space(&[first, second], 3 * S, S),
+            Err(EditError::SpaceCrossesClip(3 * S))
+        );
+        assert_eq!(tl, before);
+        assert_eq!(
+            tl.insert_space(&[first], 0, 0),
+            Err(EditError::InvalidDuration)
+        );
+        assert_eq!(
+            tl.insert_space(&[999], 0, S),
+            Err(EditError::TrackNotFound(999))
         );
     }
 }
