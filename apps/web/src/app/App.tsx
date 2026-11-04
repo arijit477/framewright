@@ -91,7 +91,8 @@ export function App() {
           break;
         case 'Delete':
         case 'Backspace':
-          deleteSelected();
+          // Shift always ripples (closes the gap), whatever the toggle says.
+          deleteSelected(event.shiftKey ? { ripple: true } : {});
           break;
         case 'ArrowLeft':
           stepFrames(event.shiftKey ? -10 : -1);

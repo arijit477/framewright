@@ -27,6 +27,7 @@ leaves your machine.
 - Filters: brightness, contrast and saturation per clip, with one-click looks (black & white,
   vivid, moody…), identical in preview and export
 - Speed: 0.25× to 4× per clip, with the sound's pitch preserved
+- Ripple editing: delete, trim or change speed and the rest of the track moves up (or along)
 - Keyframes: animate a clip's transform (zooms, pans, moving picture-in-picture, fades) with
   easing; keyframes stay with the footage when you trim or split
 - Transitions between clips: crossfade, dip, slide and wipe, with adjustable length; the
@@ -40,11 +41,11 @@ leaves your machine.
   media) and import it in any browser or on another computer
 - Undo/redo for every edit
 - Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>S</kbd> split,
-  <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove, <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
+  <kbd>T</kbd> add text, <kbd>M</kbd> mute clip, <kbd>Delete</kbd> remove (<kbd>Shift</kbd>+<kbd>Delete</kbd> closes the gap), <kbd>←</kbd>/<kbd>→</kbd> step a frame (<kbd>Shift</kbd> for 10),
   <kbd>Ctrl/⌘</kbd>+<kbd>S</kbd> save, <kbd>Ctrl/⌘</kbd>+<kbd>E</kbd> export, <kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo,
   <kbd>Ctrl/⌘</kbd>+scroll to zoom
 
-Coming next: ripple editing, LUTs, and local AI auto-captions.
+Coming next: multi-select and copy/paste, LUTs, and local AI auto-captions.
 
 ## Architecture at a glance
 

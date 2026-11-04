@@ -16,6 +16,16 @@ test.describe('editing', () => {
     await expect(editor.page.locator('.status')).toContainText('audio clock');
   });
 
+  test('the toolbar fits on one row at 1280 px, even with a clip selected', async () => {
+    await editor.clickClip(0, 3); // shows the clip's speed and volume controls too
+    const toolbar = editor.page.locator('.toolbar');
+    const buttonHeight = await toolbar
+      .getByRole('button', { name: 'Import' })
+      .evaluate((el) => el.getBoundingClientRect().height);
+    const height = await toolbar.evaluate((el) => el.getBoundingClientRect().height);
+    expect(height).toBeLessThan(buttonHeight * 2); // a second row would double it
+  });
+
   test('split, delete and undo', async () => {
     await editor.seekTo(3);
     await editor.press('s');

@@ -24,6 +24,14 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsError> {
         .map_err(|e| JsError::new(&e.to_string()))
 }
 
+fn parse_edge(edge: &str) -> Result<Edge, JsError> {
+    match edge {
+        "start" => Ok(Edge::Start),
+        "end" => Ok(Edge::End),
+        other => Err(JsError::new(&format!("unknown edge: {other}"))),
+    }
+}
+
 fn err(e: EditError) -> JsError {
     JsError::new(&e.to_string())
 }
@@ -122,13 +130,8 @@ impl Engine {
     /// `edge` is `"start"` or `"end"`.
     #[wasm_bindgen(js_name = trimClip)]
     pub fn trim_clip(&mut self, clip_id: u32, edge: &str, at: f64) -> Result<(), JsError> {
-        let edge = match edge {
-            "start" => Edge::Start,
-            "end" => Edge::End,
-            other => return Err(JsError::new(&format!("unknown edge: {other}"))),
-        };
         self.timeline
-            .trim_clip(clip_id, edge, to_micros(at))
+            .trim_clip(clip_id, parse_edge(edge)?, to_micros(at))
             .map_err(err)
     }
 
@@ -148,6 +151,30 @@ impl Engine {
     #[wasm_bindgen(js_name = setClipSpeed)]
     pub fn set_clip_speed(&mut self, clip_id: u32, percent: u16) -> Result<(), JsError> {
         self.timeline.set_clip_speed(clip_id, percent).map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = setClipSpeedRipple)]
+    pub fn set_clip_speed_ripple(&mut self, clip_id: u32, percent: u16) -> Result<(), JsError> {
+        self.timeline
+            .set_clip_speed_ripple(clip_id, percent)
+            .map_err(err)
+    }
+
+    /// Remove a clip and close the space it leaves on its track.
+    #[wasm_bindgen(js_name = rippleDelete)]
+    pub fn ripple_delete(&mut self, clip_id: u32) -> Result<(), JsError> {
+        self.timeline
+            .ripple_delete(clip_id)
+            .map(|_| ())
+            .map_err(err)
+    }
+
+    /// Like `trimClip`, but the clip keeps its start and later clips follow its end.
+    #[wasm_bindgen(js_name = trimClipRipple)]
+    pub fn trim_clip_ripple(&mut self, clip_id: u32, edge: &str, at: f64) -> Result<(), JsError> {
+        self.timeline
+            .trim_clip_ripple(clip_id, parse_edge(edge)?, to_micros(at))
+            .map_err(err)
     }
 
     #[wasm_bindgen(js_name = setClipMuted)]

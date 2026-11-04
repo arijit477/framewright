@@ -225,7 +225,7 @@ button.active {
 
 .clip-audio input[type='range'],
 .zoom input[type='range'] {
-  width: 96px;
+  width: 64px;
 }
 
 .speed {
@@ -256,7 +256,7 @@ button.active {
 .meter {
   display: grid;
   gap: 2px;
-  width: 44px;
+  width: 32px;
 }
 
 .meter-bar {

@@ -72,6 +72,11 @@ export class TimelineEngine {
     this.inner.trimClip(clipId, edge, at);
   }
 
+  /** Trim keeping the clip's start in place; later clips on the track follow its end. */
+  trimClipRipple(clipId: number, edge: 'start' | 'end', at: number): void {
+    this.inner.trimClipRipple(clipId, edge, at);
+  }
+
   splitClip(clipId: number, at: number): number {
     return this.inner.splitClip(clipId, at);
   }
@@ -136,6 +141,11 @@ export class TimelineEngine {
     this.inner.setClipSpeed(clipId, Math.round(percent));
   }
 
+  /** Change speed; later clips on the track follow the clip's new end. */
+  setClipSpeedRipple(clipId: number, percent: number): void {
+    this.inner.setClipSpeedRipple(clipId, Math.round(percent));
+  }
+
   setClipMuted(clipId: number, muted: boolean): void {
     this.inner.setClipMuted(clipId, muted);
   }
@@ -147,6 +157,11 @@ export class TimelineEngine {
 
   removeClip(clipId: number): void {
     this.inner.removeClip(clipId);
+  }
+
+  /** Remove a clip and move the later clips on its track back by its length. */
+  rippleDelete(clipId: number): void {
+    this.inner.rippleDelete(clipId);
   }
 
   /** Serialised project, used for undo history and saving. */

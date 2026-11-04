@@ -11,6 +11,7 @@ import {
   trackRows,
   transitionWindow,
   trackTop,
+  trimPreview,
   TRACK_HEIGHT,
   xToTime,
   type View,
@@ -186,5 +187,39 @@ describe('transitionWindow', () => {
     expect(transitionWindow(undefined, clip(2, 6, 3, fade))).toBeNull();
     const title = { text: { text: 'Hi', style: {} as never } };
     expect(transitionWindow(clip(1, 0, 6, title), clip(2, 6, 3, fade))).toBeNull();
+  });
+});
+
+describe('trimPreview', () => {
+  const S = 1_000_000;
+  // 2-6 s on the timeline.
+  const clip = timeline.tracks[0]!.clips[0]!;
+  const at2to6 = { ...clip, start: 2 * S, duration: 4 * S };
+
+  it('moves the dragged edge without ripple', () => {
+    expect(trimPreview(at2to6, 'start', 3 * S, false)).toEqual({
+      start: 3 * S,
+      end: 6 * S,
+      origin: 2 * S,
+      shift: 0,
+    });
+    expect(trimPreview(at2to6, 'end', 5 * S, false).end).toBe(5 * S);
+  });
+
+  it('keeps the clip in place with ripple, and moves later clips by the change', () => {
+    // Cutting 1 s off the start: the clip still starts at 2 s, its media one second later.
+    expect(trimPreview(at2to6, 'start', 3 * S, true)).toEqual({
+      start: 2 * S,
+      end: 5 * S,
+      origin: S,
+      shift: -S,
+    });
+    expect(trimPreview(at2to6, 'start', S, true).shift).toBe(S); // restoring pushes out
+    expect(trimPreview(at2to6, 'end', 8 * S, true)).toMatchObject({ end: 8 * S, shift: 2 * S });
+  });
+
+  it('never draws a negative length', () => {
+    expect(trimPreview(at2to6, 'end', 0, true)).toMatchObject({ end: 2 * S, shift: -4 * S });
+    expect(trimPreview(at2to6, 'start', 9 * S, false).start).toBe(6 * S);
   });
 });

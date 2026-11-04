@@ -21,6 +21,7 @@ import {
   maxScrollY,
   peakToHeight,
   transitionWindow,
+  trimPreview,
   RULER_HEIGHT,
   snap,
   timeToX,
@@ -69,10 +70,16 @@ interface MoveDrag {
 }
 
 /** A drag in progress. Edits are previewed locally and committed on release. */
-type Drag =
-  | { kind: 'scrub' }
-  | MoveDrag
-  | { kind: 'trim'; clip: Clip; edge: 'start' | 'end'; previewAt: number };
+type Drag = { kind: 'scrub' } | MoveDrag | TrimDrag;
+
+interface TrimDrag {
+  kind: 'trim';
+  clip: Clip;
+  edge: 'start' | 'end';
+  previewAt: number;
+  /** Ripple editing was on when the drag began: later clips on the track follow. */
+  ripple: boolean;
+}
 
 /**
  * The timeline is drawn on a canvas, not with DOM elements: thousands of clips
@@ -152,6 +159,7 @@ export function Timeline() {
             clip: hit.clip,
             edge: hit.edge,
             previewAt: hit.edge === 'start' ? hit.clip.start : clipEnd(hit.clip),
+            ripple: useEditor.getState().ripple,
           }
         : {
             kind: 'move',
@@ -222,8 +230,13 @@ export function Timeline() {
       }
     } else if (drag?.kind === 'trim') {
       const original = drag.edge === 'start' ? drag.clip.start : clipEnd(drag.clip);
-      if (drag.previewAt !== original)
-        edit((e) => e.trimClip(drag.clip.id, drag.edge, drag.previewAt));
+      if (drag.previewAt !== original) {
+        edit((e) =>
+          drag.ripple
+            ? e.trimClipRipple(drag.clip.id, drag.edge, drag.previewAt)
+            : e.trimClip(drag.clip.id, drag.edge, drag.previewAt),
+        );
+      }
     }
     draw();
   };
@@ -309,17 +322,34 @@ function paint(
         top + TRACK_HEIGHT / 2,
       );
     }
+    // A ripple trim on this track moves every clip after the trimmed one.
+    const rippling =
+      drag?.kind === 'trim' && drag.ripple && track.clips.some((c) => c.id === drag.clip.id)
+        ? drag
+        : null;
+    const rippleShift = rippling
+      ? trimPreview(rippling.clip, rippling.edge, rippling.previewAt, true).shift
+      : 0;
     for (const clip of track.clips) {
       if (moving?.clip.id === clip.id && movesAway(track.id)) continue;
-      drawClip(ctx, state, drag, { clip, kind: track.kind, top, width });
+      const follows = rippling !== null && clip.start >= clipEnd(rippling.clip);
+      drawClip(ctx, state, drag, {
+        clip,
+        kind: track.kind,
+        top,
+        width,
+        offset: follows ? rippleShift : 0,
+      });
     }
-    // Transitions sit on the cuts, over both clips (hidden while either is being dragged).
+    // Transitions sit on the cuts, over both clips (hidden while either is being
+    // dragged, and on a track whose clips are moving with a ripple trim).
     track.clips.forEach((clip, index) => {
       const before = track.clips[index - 1];
       if (
-        !drag ||
-        drag.kind === 'scrub' ||
-        (drag.clip.id !== clip.id && drag.clip.id !== before?.id)
+        !rippling &&
+        (!drag ||
+          drag.kind === 'scrub' ||
+          (drag.clip.id !== clip.id && drag.clip.id !== before?.id))
       ) {
         const window = transitionWindow(before, clip);
         if (window)
@@ -342,7 +372,10 @@ function paint(
   drawPlayhead(ctx, timeToX(playhead, view), height);
 }
 
-/** Draw one clip (at its preview position while it's being dragged or trimmed). */
+/**
+ * Draw one clip (at its preview position while it's being dragged or trimmed,
+ * or moved by `offset` while a ripple trim pushes or pulls it).
+ */
 function drawClip(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -353,19 +386,28 @@ function drawClip(
     top,
     width,
     ghost = false,
-  }: { clip: Clip; kind: TrackKind; top: number; width: number; ghost?: boolean },
+    offset = 0,
+  }: {
+    clip: Clip;
+    kind: TrackKind;
+    top: number;
+    width: number;
+    ghost?: boolean;
+    offset?: number;
+  },
 ) {
   const { view, assets, peaks, selectedClipId } = state;
-  let start = clip.start;
-  let end = clipEnd(clip);
+  let start = clip.start + offset;
+  let end = clipEnd(clip) + offset;
+  // Where the clip's media is anchored: the timeline time that would show `sourceIn`.
+  let origin = start;
   if (drag && drag.kind !== 'scrub' && drag.clip.id === clip.id) {
     if (drag.kind === 'move') {
       start = drag.previewStart;
       end = start + clip.duration;
-    } else if (drag.edge === 'start') {
-      start = Math.min(drag.previewAt, end);
+      origin = start;
     } else {
-      end = Math.max(drag.previewAt, start);
+      ({ start, end, origin } = trimPreview(clip, drag.edge, drag.previewAt, drag.ripple));
     }
   }
   const left = timeToX(start, view);
@@ -394,8 +436,6 @@ function drawClip(
           : COLORS.clip;
   roundRect(ctx, left, top + 2, right - left, TRACK_HEIGHT - 4, 6);
   ctx.fill();
-  // Source time follows the clip while it is being dragged.
-  const origin = drag?.kind === 'move' && drag.clip.id === clip.id ? start : clip.start;
   const speed = clipSpeed(clip);
   const sourceAtX = (x: number) => clip.sourceIn + (xToTime(x, view) - origin) * speed;
   const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
