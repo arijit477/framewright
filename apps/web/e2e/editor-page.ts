@@ -149,6 +149,39 @@ export class EditorPage {
     );
   }
 
+  /** Set a range slider by its accessible name, then let it commit (blur). */
+  async setSlider(name: string, value: number) {
+    const slider = this.page.getByRole('slider', { name, exact: true });
+    await slider.focus(); // like a user: the change commits when it loses focus
+    await slider.evaluate((el, v) => {
+      const input = el as HTMLInputElement;
+      // Use the native setter so React sees a real change.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        String(v),
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, value);
+    await slider.blur();
+  }
+
+  async sliderValue(name: string): Promise<number> {
+    return Number(await this.page.getByRole('slider', { name, exact: true }).inputValue());
+  }
+
+  /** Drag on the preview from one point to another, in fractions of its size. */
+  async dragOnPreview(from: [number, number], to: [number, number], { cancel = false } = {}) {
+    const box = await this.page.locator('.preview-frame canvas').boundingBox();
+    if (!box) throw new Error('Preview is not visible');
+    const at = ([x, y]: [number, number]) =>
+      [box.x + box.width * x, box.y + box.height * y] as const;
+    await this.page.mouse.move(...at(from));
+    await this.page.mouse.down();
+    await this.page.mouse.move(...at(to), { steps: 8 });
+    if (cancel) await this.press('Escape');
+    await this.page.mouse.up();
+  }
+
   /** Add a title at the current playhead and type its text. */
   async addTitle(text: string) {
     await this.press('t');
