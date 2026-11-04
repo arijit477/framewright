@@ -170,6 +170,16 @@ impl Track {
     }
 }
 
+/// A clip on the clipboard: where it came from, with `clip.start` relative to
+/// the earliest copied clip. Its `id` is replaced when pasted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopiedClip {
+    pub track_id: TrackId,
+    pub track_kind: TrackKind,
+    pub clip: Clip,
+}
+
 /// Which edge of a clip a trim moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -683,6 +693,127 @@ impl Timeline {
         clip.start = new_start;
         self.tracks[target].insert_sorted(clip);
         Ok(())
+    }
+
+    /// Move several clips by the same amount of time, keeping their tracks.
+    /// All or nothing: refused if any would start before 0 or overlap a clip
+    /// that isn't moving.
+    pub fn move_clips(&mut self, clip_ids: &[ClipId], delta: Micros) -> Result<(), EditError> {
+        for &id in clip_ids {
+            self.locate(id)?;
+        }
+        if delta == 0 {
+            return Ok(());
+        }
+        for track in &self.tracks {
+            let mut spans: Vec<(Micros, Micros)> = track
+                .clips
+                .iter()
+                .map(|c| {
+                    let shift = if clip_ids.contains(&c.id) { delta } else { 0 };
+                    (c.start + shift, c.end() + shift)
+                })
+                .collect();
+            if let Some(&(start, _)) = spans.iter().find(|(start, _)| *start < 0) {
+                return Err(EditError::OutOfRange(start));
+            }
+            spans.sort_unstable();
+            if spans.windows(2).any(|w| w[0].1 > w[1].0) {
+                return Err(EditError::Overlap);
+            }
+        }
+        for track in &mut self.tracks {
+            for clip in track.clips.iter_mut().filter(|c| clip_ids.contains(&c.id)) {
+                clip.start += delta;
+            }
+            track.clips.sort_by_key(|c| c.start);
+        }
+        Ok(())
+    }
+
+    /// Copy clips for pasting later: each keeps its track, and starts are made
+    /// relative to the earliest copied clip. Ordered by track, then time.
+    pub fn copy_clips(&self, clip_ids: &[ClipId]) -> Result<Vec<CopiedClip>, EditError> {
+        let mut copied = Vec::with_capacity(clip_ids.len());
+        for track in &self.tracks {
+            for clip in track.clips.iter().filter(|c| clip_ids.contains(&c.id)) {
+                copied.push(CopiedClip {
+                    track_id: track.id,
+                    track_kind: track.kind,
+                    clip: clip.clone(),
+                });
+            }
+        }
+        if copied.len() != clip_ids.len() {
+            let missing = clip_ids
+                .iter()
+                .find(|id| !copied.iter().any(|c| c.clip.id == **id));
+            return Err(EditError::ClipNotFound(*missing.unwrap_or(&0)));
+        }
+        let earliest = copied.iter().map(|c| c.clip.start).min().unwrap_or(0);
+        for c in &mut copied {
+            c.clip.start -= earliest;
+        }
+        Ok(copied)
+    }
+
+    /// Paste copied clips with the earliest at timeline time `at`, keeping
+    /// their spacing. Each original track gets its clips back if it still
+    /// exists and has room for all of them; otherwise they go on a new track
+    /// of the same kind (a new top layer for video, a new bottom row for
+    /// audio), so a paste never overwrites anything. Returns the new clip ids.
+    pub fn paste_clips(
+        &mut self,
+        copied: &[CopiedClip],
+        at: Micros,
+    ) -> Result<Vec<ClipId>, EditError> {
+        let at = at.max(0);
+        for c in copied {
+            if c.clip.start < 0 || c.clip.duration < MIN_CLIP_DURATION {
+                return Err(EditError::InvalidDuration);
+            }
+        }
+        // Group by original track, in the order they were copied.
+        let mut groups: Vec<(TrackId, TrackKind, Vec<&CopiedClip>)> = Vec::new();
+        for c in copied {
+            match groups.iter_mut().find(|(id, _, _)| *id == c.track_id) {
+                Some((_, _, clips)) => clips.push(c),
+                None => groups.push((c.track_id, c.track_kind, vec![c])),
+            }
+        }
+        // Plan every group before changing anything: all or nothing.
+        let plan: Vec<(Option<usize>, TrackKind, Vec<&CopiedClip>)> = groups
+            .into_iter()
+            .map(|(track_id, kind, clips)| {
+                let target = self.tracks.iter().position(|t| {
+                    t.id == track_id
+                        && t.kind == kind
+                        && clips.iter().all(|c| {
+                            let start = at + c.clip.start;
+                            t.is_free(start, start + c.clip.duration, None)
+                        })
+                });
+                (target, kind, clips)
+            })
+            .collect();
+        let mut ids = Vec::with_capacity(copied.len());
+        for (target, kind, clips) in plan {
+            let t = match target {
+                Some(t) => t,
+                None => {
+                    self.add_track(kind);
+                    self.tracks.len() - 1
+                }
+            };
+            for c in clips {
+                let mut clip = c.clip.clone();
+                clip.id = self.alloc_id();
+                clip.start = at + c.clip.start;
+                ids.push(clip.id);
+                self.tracks[t].insert_sorted(clip);
+            }
+        }
+        Ok(ids)
     }
 
     /// Move one edge of a clip to the timeline time `at`.
@@ -2018,5 +2149,99 @@ mod tests {
         );
         assert_eq!(tl.ripple_delete(999), Err(EditError::ClipNotFound(999)));
         assert_eq!(tl, before);
+    }
+
+    #[test]
+    fn moving_several_clips_keeps_their_spacing_and_tracks() {
+        let (mut tl, [a, b, c, d]) = ripple_timeline();
+        tl.move_clips(&[b, d], S).unwrap();
+        assert_eq!(
+            starts(&tl),
+            [
+                (a, 0, 2 * S),
+                (b, 3 * S, 2 * S),
+                (c, 6 * S, S),
+                (d, 2 * S, 4 * S)
+            ]
+        );
+        // b would run into c; a would go before 0. Nothing moves either time.
+        let before = tl.clone();
+        assert_eq!(tl.move_clips(&[b, d], 2 * S), Err(EditError::Overlap));
+        assert_eq!(tl.move_clips(&[a, b], -S), Err(EditError::OutOfRange(-S)));
+        assert_eq!(tl, before);
+        // Moving neighbours together is fine even though each alone would collide.
+        tl.move_clips(&[a, b, c], 3 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].start, 3 * S);
+        assert_eq!(
+            tl.move_clips(&[a, 999], S),
+            Err(EditError::ClipNotFound(999))
+        );
+    }
+
+    #[test]
+    fn copies_are_relative_to_the_earliest_clip_and_keep_their_track() {
+        let (tl, [_, b, _, d]) = ripple_timeline();
+        let copied = tl.copy_clips(&[d, b]).unwrap();
+        let summary: Vec<_> = copied
+            .iter()
+            .map(|c| (c.track_id, c.clip.id, c.clip.start))
+            .collect();
+        // In track order: b (track 1) then d (track 2); d starts first, at 1 s.
+        assert_eq!(summary, [(tl.tracks[0].id, b, S), (tl.tracks[1].id, d, 0)]);
+        assert_eq!(tl.copy_clips(&[b, 42]), Err(EditError::ClipNotFound(42)));
+    }
+
+    #[test]
+    fn paste_goes_back_to_the_same_tracks_when_there_is_room() {
+        let (mut tl, [a, b, ..]) = ripple_timeline();
+        let copied = tl.copy_clips(&[a, b]).unwrap();
+        let ids = tl.paste_clips(&copied, 10 * S).unwrap();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(tl.tracks.len(), 2, "no new track needed");
+        let pasted: Vec<_> = tl.tracks[0].clips[3..]
+            .iter()
+            .map(|c| (c.id, c.start, c.asset_id.as_str()))
+            .collect();
+        assert_eq!(pasted, [(ids[0], 10 * S, "a"), (ids[1], 12 * S, "b")]);
+        assert!(!ids.contains(&a) && !ids.contains(&b), "fresh ids");
+    }
+
+    #[test]
+    fn paste_never_overwrites_it_uses_a_new_track() {
+        let (mut tl, [a, _, _, d]) = ripple_timeline();
+        let copied = tl.copy_clips(&[a, d]).unwrap();
+        // At 1 s, a would overlap b on its track and d would overlap itself.
+        let ids = tl.paste_clips(&copied, S).unwrap();
+        assert_eq!(tl.tracks.len(), 4, "a new track for each group");
+        assert_eq!(tl.tracks[2].clips[0].id, ids[0]);
+        assert_eq!(tl.tracks[3].clips[0].start, S + S);
+        assert!(tl.tracks[2..].iter().all(|t| t.kind == TrackKind::Video));
+    }
+
+    #[test]
+    fn pasted_clips_keep_everything_but_their_id_and_position() {
+        let (mut tl, _, clip) = timeline_with_clip();
+        tl.set_clip_speed(clip, 200).unwrap();
+        tl.set_keyframe(clip, 0, at_x(0)).unwrap();
+        tl.set_clip_color(
+            clip,
+            ColorAdjust {
+                saturation: -100,
+                ..ColorAdjust::default()
+            },
+        )
+        .unwrap();
+        let copied = tl.copy_clips(&[clip]).unwrap();
+        let id = tl.paste_clips(&copied, 20 * S).unwrap()[0];
+        let original = tl.tracks[0].clips[0].clone();
+        let pasted = tl.tracks[0].clips.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(
+            Clip {
+                id: original.id,
+                start: original.start,
+                ..pasted.clone()
+            },
+            original
+        );
     }
 }

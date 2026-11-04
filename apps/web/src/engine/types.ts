@@ -31,6 +31,13 @@ export interface Clip {
   transitionIn?: Transition;
 }
 
+/** A clip on the clipboard (mirrors `CopiedClip`): `clip.start` is relative to the earliest. */
+export interface CopiedClip {
+  trackId: number;
+  trackKind: TrackKind;
+  clip: Clip;
+}
+
 export type TransitionKind = 'crossfade' | 'dip' | 'slide' | 'wipe';
 
 /** Mirrors crates/engine/src/transition.rs. */
