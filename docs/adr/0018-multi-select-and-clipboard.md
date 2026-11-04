@@ -35,7 +35,7 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
 ## Consequences
 
 - No project format change.
-- Not yet: rubber-band (marquee) selection, moving a selection across tracks, duplicate,
+- Not yet: moving a selection across tracks, duplicate,
   editing several clips' settings at once, and pasting between tabs (the system clipboard
   would also need the media).
 
@@ -44,3 +44,14 @@ reusing a title all took repeated work. Editors offer a multi-clip selection and
 - **System clipboard (JSON):** works across tabs, but pasted clips would reference media the
   other project doesn't have; copying media through the clipboard is a bigger feature.
 - **Paste overwriting what's underneath:** matches some editors, but destroys work silently.
+
+## Addendum: selection box (marquee)
+
+- Dragging on empty track space draws a selection box. Every clip it touches, on any row, is
+  selected live (`clipsInRect` in `timeline/geometry.ts`, unit-tested). With Ctrl/⌘/Shift held,
+  the box adds to the existing selection.
+- This replaces scrubbing from empty track space; the ruler still scrubs. A plain click on empty
+  space still deselects and moves the playhead, now on release, so starting a box never moves
+  the playhead.
+- The box is mouse-only. Keyboard selection of clips (the timeline is a canvas) is a separate
+  accessibility item.

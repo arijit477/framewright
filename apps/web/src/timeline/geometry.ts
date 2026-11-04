@@ -176,3 +176,34 @@ export function trimPreview(
     ? { start: clip.start, end: end - cut, origin: clip.start - cut, shift: -cut }
     : { start: clip.start + cut, end, origin: clip.start, shift: 0 };
 }
+
+/** A rectangle in canvas pixels. */
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** The rectangle between two corners, whichever way it was dragged. */
+export const rectBetween = (x0: number, y0: number, x1: number, y1: number): Rect => ({
+  left: Math.min(x0, x1),
+  top: Math.min(y0, y1),
+  right: Math.max(x0, x1),
+  bottom: Math.max(y0, y1),
+});
+
+/** Every clip a selection box touches (any overlap counts), in display order. */
+export function clipsInRect(timeline: TimelineSnapshot, view: View, rect: Rect): number[] {
+  const ids: number[] = [];
+  for (const [row, track] of trackRows(timeline).entries()) {
+    const top = trackTop(row, view.scrollY);
+    if (top + TRACK_HEIGHT < rect.top || top > rect.bottom) continue;
+    for (const clip of track.clips) {
+      const left = timeToX(clip.start, view);
+      const right = timeToX(clipEnd(clip), view);
+      if (right >= rect.left && left <= rect.right) ids.push(clip.id);
+    }
+  }
+  return ids;
+}
