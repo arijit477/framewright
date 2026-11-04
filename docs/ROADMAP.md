@@ -48,7 +48,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Transform: position, scale, rotation, opacity; picture-in-picture presets; drag on the preview
 - [ ] Keyframes for transforms (animate position, scale, rotation, opacity)
 - [ ] Resize and rotate handles on the preview
-- [ ] Transitions: crossfade, slide, wipe (WGSL)
+- [x] Transitions: crossfade, dip, slide, wipe (centred on the cut, both renderers)
+- [ ] Audio crossfades under video transitions
 - [ ] Filters: brightness/contrast/saturation, LUTs; plugin API for effects
 - [ ] Speed control (0.25×–4×) with audio pitch preservation
 - [ ] Ripple delete, magnetic timeline, multi-select, copy/paste

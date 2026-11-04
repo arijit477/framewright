@@ -24,6 +24,7 @@ leaves your machine.
   position and fade/slide/pop animations, rendered identically in preview and export
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
+- Transitions between clips: crossfade, dip, slide and wipe, with adjustable length
 - Multiple video and audio tracks: drag a clip above the top track for a new layer (B-roll,
   cutaways); higher tracks cover lower ones
 - Frame-accurate preview, rendered off the main thread

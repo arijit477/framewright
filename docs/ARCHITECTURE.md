@@ -260,6 +260,28 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
 
+## Transitions
+
+See [ADR 0012](./adr/0012-transitions.md).
+
+- **Model (Rust, `transition.rs`):** a transition belongs to the incoming clip
+  (`transitionIn: { kind, durationMs }`) and is **centred on the cut**. It's in effect only
+  while the clip touches the one before it on the same track and both are media. If the clips
+  are moved apart it's kept but inactive; split halves simply cut together. The length is
+  validated (0.1–3 s, no longer than either clip) and clamped at render time if a clip is
+  trimmed later.
+- **Resolve:** in the window `[cut − D/2, cut + D/2)`, a track contributes both clips (outgoing,
+  then incoming), each tagged with the kind, its role and the progress (0–1000). The outgoing
+  clip plays on past its out-point and the incoming one starts early; where the file has no
+  extra media there, the edge frame is held.
+- **Rendering:** `render/transition.ts` turns (kind, role, progress) into an effect (opacity,
+  horizontal offset, reveal band), unit-tested, and both compositors apply it: opacity
+  multiplies the clip's own, the offset shifts the shared placement matrix, and the reveal
+  clips Canvas 2D or sets the WebGPU scissor rectangle (reset after each draw).
+- **UI:** a Transition field in the clip panel (style and length) and a marker on the
+  timeline at each active transition. The accessible track list names it ("crossfade into …").
+- **Audio** still cuts at the edit point (on the roadmap).
+
 ## Timeline thumbnails
 
 Video clips show a filmstrip (`apps/web/src/thumbnails`):
