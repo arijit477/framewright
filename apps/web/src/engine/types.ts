@@ -19,7 +19,36 @@ export interface Clip {
   muted: boolean;
   /** Set for text clips (no media; `assetId` is empty). */
   text?: TextContent;
+  /** Placement of a media clip; omitted when unchanged. */
+  transform?: Transform;
 }
+
+/** Mirrors crates/engine/src/transform.rs: integers relative to the frame. */
+export interface Transform {
+  /** Centre, in thousandths of the frame (500 = centre). */
+  x: number;
+  y: number;
+  scalePercent: number;
+  /** Clockwise. */
+  rotationDeg: number;
+  opacityPercent: number;
+}
+
+export const IDENTITY_TRANSFORM: Transform = {
+  x: 500,
+  y: 500,
+  scalePercent: 100,
+  rotationDeg: 0,
+  opacityPercent: 100,
+};
+
+export const TRANSFORM_LIMITS = {
+  minPosition: -1000,
+  maxPosition: 2000,
+  minScale: 1,
+  maxScale: 1000,
+  maxRotation: 360,
+} as const;
 
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'handwriting';
 export type TextAlign = 'left' | 'center' | 'right';
@@ -77,6 +106,7 @@ export interface Layer {
   clipDuration: Micros;
   /** Set for text clips: drawn instead of a video frame. */
   text?: TextContent;
+  transform: Transform;
 }
 
 /** One audible stretch of a clip, for the audio mixer. */

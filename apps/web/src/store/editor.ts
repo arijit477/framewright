@@ -7,6 +7,7 @@ import {
   type TextContent,
   type TimelineSnapshot,
   type TrackKind,
+  type Transform,
 } from '../engine/types';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
@@ -531,6 +532,74 @@ export function addText(text = 'Your text'): void {
 /** Replace a text clip's content and style (validated by the engine). */
 export function updateText(clipId: number, content: TextContent): boolean {
   return edit((e) => e.setClipText(clipId, content));
+}
+
+/**
+ * The clip a drag on the preview moves: the selected clip if it's visible at
+ * the playhead, otherwise the topmost visible one. Only visual clips (titles
+ * and video) can be moved.
+ */
+export function previewDragTarget(state: EditorState = get()): Clip | null {
+  const { timeline, playhead, assets, selectedClipId } = state;
+  const visible = trackRows(timeline)
+    .filter((t) => t.kind === 'video')
+    .flatMap((t) => t.clips)
+    .filter((c) => c.start <= playhead && playhead < clipEnd(c))
+    .filter((c) => c.text || assets[c.assetId]?.hasVideo);
+  return visible.find((c) => c.id === selectedClipId) ?? visible[0] ?? null;
+}
+
+export function setClipTransform(clipId: number, transform: Transform): boolean {
+  return edit((e) => e.setClipTransform(clipId, transform));
+}
+
+// ---------------------------------------------------------------- gestures
+
+/**
+ * Continuous interactions (dragging a clip on the preview) apply changes live,
+ * but record a single undo step when they end. Each update is validated by the
+ * engine; a rejected update leaves the last good state in place.
+ */
+let gestureStart: string | null = null;
+
+export function beginGesture(): void {
+  gestureStart = requireEngine().save();
+}
+
+export function updateGesture(operation: (engine: TimelineEngine) => void): boolean {
+  const e = requireEngine();
+  if (gestureStart === null) return false;
+  const lastGood = e.save();
+  try {
+    operation(e);
+  } catch {
+    e.load(lastGood);
+    return false;
+  }
+  refresh();
+  return true;
+}
+
+/** Finish the gesture: one undo step, if anything changed. */
+export function endGesture(): void {
+  const e = requireEngine();
+  const before = gestureStart;
+  gestureStart = null;
+  if (before === null || e.save() === before) return;
+  undoStack.push(before);
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack.length = 0;
+  refresh();
+  emit({ type: 'changed' });
+}
+
+/** Abandon the gesture (e.g. Escape): restore the state from before it began. */
+export function cancelGesture(): void {
+  const e = requireEngine();
+  if (gestureStart === null) return;
+  e.load(gestureStart);
+  gestureStart = null;
+  refresh();
 }
 
 export function setClipVolume(clipId: number, percent: number) {

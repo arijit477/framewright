@@ -25,7 +25,7 @@ export async function drawItems(
       const sample = await readers
         .get(layer.assetId, layer.trackIndex)
         ?.frameAt(layer.sourceTime / 1_000_000);
-      return sample ? { kind: 'video', sample } : null;
+      return sample ? { kind: 'video', sample, transform: layer.transform } : null;
     }),
   );
   return items.filter((item): item is DrawItem => item !== null);

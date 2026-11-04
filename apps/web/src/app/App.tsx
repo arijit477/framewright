@@ -26,7 +26,7 @@ import { ExportDialog } from './ExportDialog';
 import { MissingMediaBanner } from './MissingMedia';
 import { ProjectsDialog, ProjectTitle } from './ProjectsDialog';
 import { Preview } from './Preview';
-import { TextInspector } from './TextInspector';
+import { ClipInspector } from './ClipInspector';
 import { Toolbar } from './Toolbar';
 
 export function App() {
@@ -47,9 +47,9 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // Never treat typing in a field as shortcuts (Backspace would delete a clip).
-      if (isEditable(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
+      // Save and export work everywhere, even while typing: they never conflict
+      // with editing text, and pending edits are flushed first.
       if (mod && event.key.toLowerCase() === 's') {
         event.preventDefault(); // not the browser's "save page"
         void saveProject();
@@ -60,6 +60,9 @@ export function App() {
         if (useEditor.getState().duration > 0) openExport();
         return;
       }
+      // Everything else is ignored while typing in a field: Backspace would
+      // delete a clip, and Ctrl+Z should undo text, not the timeline.
+      if (isEditable(event.target)) return;
       if (mod && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redo();
@@ -142,7 +145,7 @@ export function App() {
       <ProjectsDialog />
       <div className="workspace">
         <Preview />
-        <TextInspector />
+        <ClipInspector />
       </div>
       {ready && <Toolbar />}
       <Timeline />
