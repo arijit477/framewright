@@ -23,12 +23,8 @@ test.describe('project backups', () => {
   let editor: EditorPage;
 
   test.beforeEach(async ({ page }) => {
-    // Playwright can't drive the native Save dialog; use the download fallback.
-    await page.addInitScript(() => {
-      delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker;
-    });
     editor = new EditorPage(page);
-    await editor.goto();
+    await editor.goto(); // no native Save dialog: backups use the download fallback
     await editor.importFixtures(FIXTURES.video, FIXTURES.audio);
     await editor.renameProject('Trip');
     await editor.waitSaved();

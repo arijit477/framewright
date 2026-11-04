@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { ExportFormat, ExportResolution, ExportFps } from '../src/export/settings';
 import { RULER_HEIGHT, TRACK_GAP, TRACK_HEIGHT, TRACK_PADDING_X } from '../src/timeline/geometry';
@@ -17,14 +18,41 @@ export class EditorPage {
     this.timeline = page.locator('.timeline canvas');
   }
 
-  async goto() {
+  /**
+   * Open the editor. Playwright can't operate the native Save dialog, so
+   * `savePicker` replaces it: 'none' removes it (exports go to browser storage
+   * and are downloaded), 'fake' returns a real writable file in browser storage
+   * (exercising the stream-to-a-picked-file path), 'cancel' simulates the user
+   * dismissing the dialog.
+   */
+  async goto({ savePicker = 'none' }: { savePicker?: 'none' | 'fake' | 'cancel' } = {}) {
+    await this.page.addInitScript((mode) => {
+      const w = window as { showSaveFilePicker?: unknown };
+      if (mode === 'none') delete w.showSaveFilePicker;
+      if (mode === 'cancel') {
+        w.showSaveFilePicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
+      }
+      if (mode === 'fake') {
+        w.showSaveFilePicker = async ({ suggestedName }: { suggestedName: string }) => {
+          const root = await navigator.storage.getDirectory();
+          const dir = await root.getDirectoryHandle('picked', { create: true });
+          return dir.getFileHandle(suggestedName, { create: true });
+        };
+      }
+    }, savePicker);
     await this.page.goto('/');
     await expect(this.page.getByRole('button', { name: 'Import' })).toBeVisible();
   }
 
+  /**
+   * Import files and wait until every one of them is on the timeline. (Waiting
+   * for the empty-preview message to go isn't enough: after the first import it
+   * is already gone, so later imports would return before they finished.)
+   */
   async importFixtures(...names: string[]) {
     await this.page.setInputFiles('input[type=file]', names.map(fixture));
-    await expect(this.page.locator('.preview-empty')).toHaveCount(0, { timeout: 15_000 });
+    const tracks = this.page.getByRole('list', { name: 'Timeline tracks' });
+    for (const name of names) await expect(tracks).toContainText(name, { timeout: 15_000 });
   }
 
   /** Playhead and total duration in seconds, read from the timecode display. */
@@ -192,6 +220,41 @@ export class EditorPage {
     const dialog = await this.openProjects();
     await dialog.getByRole('button', { name: `Open ${name}` }).click();
     await expect(this.page.locator('.project-name')).toContainText(name);
+  }
+
+  /** Names of files in a folder of browser storage (OPFS); empty if it doesn't exist. */
+  async storedFiles(folder: string): Promise<string[]> {
+    return this.page.evaluate(async (name) => {
+      const root = await navigator.storage.getDirectory();
+      try {
+        const dir = await root.getDirectoryHandle(name);
+        const names: string[] = [];
+        for await (const [entry] of dir.entries()) names.push(entry);
+        return names;
+      } catch {
+        return [];
+      }
+    }, folder);
+  }
+
+  /** Copy a file out of browser storage (OPFS) to `path` on disk. */
+  async saveStoredFile(folder: string, name: string, path: string) {
+    const base64 = await this.page.evaluate(
+      async ({ folder, name }) => {
+        const root = await navigator.storage.getDirectory();
+        const file = await (
+          await (await root.getDirectoryHandle(folder)).getFileHandle(name)
+        ).getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        }
+        return btoa(binary);
+      },
+      { folder, name },
+    );
+    writeFileSync(path, Buffer.from(base64, 'base64'));
   }
 
   /** Download the current project's backup into `dir`; returns the file path. */
