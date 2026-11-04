@@ -51,7 +51,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [ ] Resize and rotate handles on the preview
 - [x] Transitions: crossfade, dip, slide, wipe (centred on the cut, both renderers)
 - [x] Audio crossfades under video transitions (equal power; dips fade to the cut)
-- [ ] Filters: brightness/contrast/saturation, LUTs; plugin API for effects
+- [x] Filters: brightness, contrast, saturation and one-click looks (all renderers)
+- [ ] LUTs, temperature/tint; plugin API for effects
 - [ ] Speed control (0.25×–4×) with audio pitch preservation
 - [ ] Ripple delete, magnetic timeline, multi-select, copy/paste
 - [ ] Proxy media for 4K sources

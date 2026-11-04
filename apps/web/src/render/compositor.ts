@@ -1,5 +1,11 @@
 import type { VideoSample } from 'mediabunny';
-import { IDENTITY_TRANSFORM, type TextContent, type Transform } from '../engine/types';
+import {
+  IDENTITY_TRANSFORM,
+  type ColorAdjust,
+  type TextContent,
+  type Transform,
+} from '../engine/types';
+import { adjustPixels, colorParams, cssFilter, isNeutral, NEUTRAL_COLOR } from './color';
 import type { RendererBackend } from './protocol';
 import { drawText } from './text';
 import { layerMatrix, toClipSpace, type Affine } from './transform';
@@ -11,7 +17,13 @@ import { NO_EFFECT, type TransitionEffect } from './transition';
  */
 /** One layer to draw, bottom first: a decoded video frame or a text overlay. */
 export type DrawItem =
-  | { kind: 'video'; sample: VideoSample; transform: Transform; effect: TransitionEffect }
+  | {
+      kind: 'video';
+      sample: VideoSample;
+      transform: Transform;
+      color: ColorAdjust;
+      effect: TransitionEffect;
+    }
   | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
 
 export interface Compositor {
@@ -46,11 +58,19 @@ export async function createCompositor(
 class Canvas2dCompositor implements Compositor {
   readonly backend = 'canvas2d' as const;
   private readonly ctx: OffscreenCanvasRenderingContext2D;
+  /**
+   * Whether `ctx.filter` works (checked before ever setting it: assigning an
+   * unsupported property would just create a plain one).
+   */
+  private readonly canvasFilters: boolean;
+  /** Scratch canvas for adjusting pixels by hand where `ctx.filter` is missing. */
+  private scratch: OffscreenCanvas | null = null;
 
   constructor(private readonly canvas: OffscreenCanvas) {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas 2D is not supported');
     this.ctx = ctx;
+    this.canvasFilters = typeof ctx.filter === 'string';
   }
 
   draw(items: DrawItem[]): void {
@@ -62,7 +82,7 @@ class Canvas2dCompositor implements Compositor {
         drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
         continue;
       }
-      const { sample, transform, effect } = item;
+      const { sample, transform, color, effect } = item;
       const opacity = (transform.opacityPercent / 100) * effect.opacity;
       const [revealFrom, revealTo] = effect.reveal;
       if (opacity === 0 || revealTo <= revealFrom) continue;
@@ -79,9 +99,31 @@ class Canvas2dCompositor implements Compositor {
       }
       this.ctx.globalAlpha = opacity;
       this.ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
-      sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
+      if (isNeutral(color)) {
+        sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
+      } else if (this.canvasFilters) {
+        this.ctx.filter = cssFilter(color); // reset by restore()
+        sample.draw(this.ctx, 0, 0, 1, 1);
+      } else {
+        this.ctx.drawImage(this.adjusted(sample, color), 0, 0, 1, 1);
+      }
       this.ctx.restore();
     }
+  }
+
+  /** Fallback: the frame at full size with its pixels adjusted in JavaScript (slow but exact). */
+  private adjusted(sample: VideoSample, color: ColorAdjust): OffscreenCanvas {
+    const width = sample.displayWidth;
+    const height = sample.displayHeight;
+    if (!this.scratch || this.scratch.width !== width || this.scratch.height !== height) {
+      this.scratch = new OffscreenCanvas(width, height);
+    }
+    const ctx = this.scratch.getContext('2d', { willReadFrequently: true })!;
+    sample.draw(ctx, 0, 0, width, height);
+    const pixels = ctx.getImageData(0, 0, width, height);
+    adjustPixels(pixels.data, color);
+    ctx.putImageData(pixels, 0, 0);
+    return this.scratch;
   }
 }
 
@@ -89,7 +131,8 @@ const SHADER = /* wgsl */ `
 // Affine transform from the unit square (the source frame, y down) to clip space:
 // position = (m.x·u + m.z·v + t.x, m.y·u + m.w·v + t.y); t.z is the layer opacity.
 // Computed by layerMatrix() + toClipSpace() in transform.ts (shared with Canvas 2D).
-struct Quad { m: vec4f, t: vec4f };
+// c = (brightness, contrast, saturation, unused): the CSS filter maths of render/color.ts.
+struct Quad { m: vec4f, t: vec4f, c: vec4f };
 @group(0) @binding(0) var<uniform> quad: Quad;
 @group(0) @binding(1) var frameSampler: sampler;
 @group(0) @binding(2) var frame: texture_external;
@@ -110,9 +153,17 @@ struct VsOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   return out;
 }
 
+// brightness(), contrast(), then saturate(), clamping after each step like CSS.
+fn adjust(rgb: vec3f) -> vec3f {
+  let lit = clamp(rgb * quad.c.x, vec3f(0), vec3f(1));
+  let contrasted = clamp((lit - 0.5) * quad.c.y + 0.5, vec3f(0), vec3f(1));
+  let luma = dot(contrasted, vec3f(0.213, 0.715, 0.072));
+  return clamp(luma + (contrasted - luma) * quad.c.z, vec3f(0), vec3f(1));
+}
+
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let colour = textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
-  return vec4f(colour.rgb, colour.a * quad.t.z);
+  return vec4f(adjust(colour.rgb), colour.a * quad.t.z);
 }
 `;
 
@@ -163,7 +214,7 @@ class WebGpuCompositor implements Compositor {
     });
     const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     const uniforms = Array.from({ length: MAX_LAYERS }, () =>
-      device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
+      device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
     );
 
     // Some drivers expose WebGPU but cannot import video frames correctly.
@@ -222,7 +273,13 @@ class WebGpuCompositor implements Compositor {
       this.device.queue.writeBuffer(
         uniform,
         0,
-        quadUniform(matrix, width, height, (transform.opacityPercent / 100) * effect.opacity),
+        quadUniform(
+          matrix,
+          width,
+          height,
+          (transform.opacityPercent / 100) * effect.opacity,
+          item.kind === 'video' ? item.color : NEUTRAL_COLOR,
+        ),
       );
       // Wipe: limit drawing to the revealed band (whole pixels, at least one wide).
       const from = Math.floor(effect.reveal[0] * width);
@@ -269,11 +326,13 @@ class WebGpuCompositor implements Compositor {
 }
 
 /**
- * Draw a solid red VideoFrame, then a fully transparent one on top, through
- * the production pipeline into a 4x4 texture, and read it back. The result
- * must still be red: that proves video frames import correctly *and* that
- * transparency survives (text overlays rely on it). Returns false on any
- * error or wrong colour, so the caller falls back to Canvas 2D.
+ * Draw a solid red VideoFrame (desaturated to black and white), then a fully
+ * transparent one on top, through the production pipeline into a 4x4
+ * texture, and read it back. The result must be red's grey (luma 0.213, about
+ * 54 of 255): that proves video frames import correctly, that transparency
+ * survives (text overlays rely on it) *and* that the colour maths matches
+ * Canvas 2D. Returns false on any error or wrong colour, so the caller falls
+ * back to Canvas 2D.
  */
 async function selfTest(
   device: GPUDevice,
@@ -302,7 +361,11 @@ async function selfTest(
     device.queue.writeBuffer(
       uniform,
       0,
-      quadUniform(layerMatrix(size, size, size, size, IDENTITY_TRANSFORM), size, size, 1),
+      quadUniform(layerMatrix(size, size, size, size, IDENTITY_TRANSFORM), size, size, 1, {
+        brightness: 0,
+        contrast: 0,
+        saturation: -100,
+      }),
     );
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -338,11 +401,11 @@ async function selfTest(
     if (await device.popErrorScope()) return false;
 
     await readback.mapAsync(GPUMapMode.READ);
-    const pixel = new Uint8Array(readback.getMappedRange(), 0, 4);
-    const [red, blue] = format === 'bgra8unorm' ? [pixel[2]!, pixel[0]!] : [pixel[0]!, pixel[2]!];
+    const pixel = [...new Uint8Array(readback.getMappedRange(), 0, 3)];
     readback.unmap();
     target.destroy();
-    return red > 200 && blue < 50;
+    // Grey, so the channel order (rgba or bgra) doesn't matter.
+    return pixel.every((v) => Math.abs(v - 0.213 * 255) < 8);
   } catch (error) {
     console.warn('WebGPU self-test failed', error);
     return false;
@@ -352,10 +415,30 @@ async function selfTest(
   }
 }
 
-/** The shader's uniform: the clip-space matrix and the layer opacity (8 floats). */
-function quadUniform(pixels: Affine, width: number, height: number, opacity: number) {
+/** The shader's uniform: clip-space matrix, layer opacity and colour adjustments (12 floats). */
+function quadUniform(
+  pixels: Affine,
+  width: number,
+  height: number,
+  opacity: number,
+  color: ColorAdjust = NEUTRAL_COLOR,
+) {
   const m = toClipSpace(pixels, width, height);
-  return new Float32Array([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0]);
+  const c = colorParams(color);
+  return new Float32Array([
+    m.a,
+    m.b,
+    m.c,
+    m.d,
+    m.e,
+    m.f,
+    opacity,
+    0,
+    c.brightness,
+    c.contrast,
+    c.saturation,
+    0,
+  ]);
 }
 
 /** Move a placement right by `dx` canvas pixels (slide transitions). */

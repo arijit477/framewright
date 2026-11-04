@@ -23,6 +23,8 @@ export interface Clip {
   transform?: Transform;
   /** Animation of the transform, in source-time order; omitted when none. */
   keyframes?: Keyframe[];
+  /** Colour adjustments of a media clip; omitted when unchanged. */
+  color?: ColorAdjust;
   /** Transition from the clip directly before (inactive unless they touch). */
   transitionIn?: Transition;
 }
@@ -54,6 +56,15 @@ export interface Transform {
   rotationDeg: number;
   opacityPercent: number;
 }
+
+/** Mirrors crates/engine/src/color.rs: each -100..100, 0 = unchanged. */
+export interface ColorAdjust {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+}
+
+export const COLOR_LIMIT = 100;
 
 export type Easing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 
@@ -142,6 +153,8 @@ export interface Layer {
   text?: TextContent;
   /** Placement at this moment: fractional while keyframes animate it. */
   transform: Transform;
+  /** Colour adjustments; omitted when unchanged. */
+  color?: ColorAdjust;
   /** Set while this layer is part of a transition. */
   transition?: LayerTransition;
 }

@@ -584,6 +584,17 @@ button.danger-quiet {
   font-size: 14px;
 }
 
+.inspector-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.pip-grid button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
 .field {
   display: grid;
   gap: 6px;
