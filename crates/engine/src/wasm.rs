@@ -7,6 +7,7 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::keyframe::Easing;
 use crate::text::{TextContent, TextStyle};
 use crate::timeline::{Edge, EditError, Micros, Timeline, TrackKind};
 use crate::transform::Transform;
@@ -175,6 +176,57 @@ impl Engine {
         self.timeline
             .set_clip_transform(clip_id, transform)
             .map_err(err)
+    }
+
+    /// Add or update the keyframe at `source_time` (µs in the clip's media).
+    #[wasm_bindgen(js_name = setKeyframe)]
+    pub fn set_keyframe(
+        &mut self,
+        clip_id: u32,
+        source_time: f64,
+        transform: JsValue,
+    ) -> Result<(), JsError> {
+        let transform: Transform = serde_wasm_bindgen::from_value(transform)?;
+        self.timeline
+            .set_keyframe(clip_id, to_micros(source_time), transform)
+            .map_err(err)
+    }
+
+    /// `easing` is `"linear"`, `"easeIn"`, `"easeOut"` or `"easeInOut"`.
+    #[wasm_bindgen(js_name = setKeyframeEasing)]
+    pub fn set_keyframe_easing(
+        &mut self,
+        clip_id: u32,
+        source_time: f64,
+        easing: JsValue,
+    ) -> Result<(), JsError> {
+        let easing: Easing = serde_wasm_bindgen::from_value(easing)?;
+        self.timeline
+            .set_keyframe_easing(clip_id, to_micros(source_time), easing)
+            .map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = removeKeyframe)]
+    pub fn remove_keyframe(&mut self, clip_id: u32, source_time: f64) -> Result<(), JsError> {
+        self.timeline
+            .remove_keyframe(clip_id, to_micros(source_time))
+            .map_err(err)
+    }
+
+    /// A media clip's transform at timeline time `at`, as `resolve` would place it.
+    #[wasm_bindgen(js_name = clipTransformAt)]
+    pub fn clip_transform_at(&self, clip_id: u32, at: f64) -> Result<JsValue, JsError> {
+        to_js(
+            &self
+                .timeline
+                .clip_transform_at(clip_id, to_micros(at))
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = clearKeyframes)]
+    pub fn clear_keyframes(&mut self, clip_id: u32) -> Result<(), JsError> {
+        self.timeline.clear_keyframes(clip_id).map_err(err)
     }
 
     /// Set (`{ kind, durationMs }`) or clear (`null`) the transition into a clip.

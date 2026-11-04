@@ -35,6 +35,7 @@ import {
 
 const COLORS = {
   background: '#101015',
+  keyframe: '#fbbf24',
   ruler: '#17171e',
   tick: '#3a3a48',
   label: '#8c8ca1',
@@ -464,6 +465,29 @@ function drawClip(
     ctx.fillText(`${clipLabel(clip, assets[clip.assetId]?.name)}${status}`, labelLeft, top + 15);
     ctx.restore();
   }
+  ctx.restore();
+  // Keyframes, as diamonds along the bottom edge (only those inside the clip as drawn).
+  for (const key of clip.keyframes ?? []) {
+    const at = origin + (key.sourceTime - clip.sourceIn);
+    if (at < start || at > end) continue;
+    drawKeyframe(ctx, timeToX(at, view), top + TRACK_HEIGHT - 9, ghost);
+  }
+}
+
+function drawKeyframe(ctx: CanvasRenderingContext2D, x: number, y: number, ghost: boolean) {
+  const r = 4.5;
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.75;
+  ctx.fillStyle = COLORS.keyframe;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + r, y);
+  ctx.lineTo(x, y + r);
+  ctx.lineTo(x - r, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
   ctx.restore();
 }
 

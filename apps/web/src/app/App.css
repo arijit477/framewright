@@ -6,6 +6,7 @@
   --muted: #8c8ca1;
   --accent: #6366f1;
   --accent-hover: #818cf8;
+  --keyframe: #fbbf24;
   --danger: #f43f5e;
   color-scheme: dark;
   font-family:
@@ -702,6 +703,21 @@ button.toggle {
 .pip-grid button {
   padding: 5px 6px;
   font-size: 12px;
+}
+
+.keyframe-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+}
+
+.keyframe-row button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.keyframe-toggle[aria-pressed='true'] span {
+  color: var(--keyframe);
 }
 
 .inspector-tip {

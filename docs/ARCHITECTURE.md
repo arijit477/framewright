@@ -260,6 +260,23 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
 
+## Keyframes
+
+See [ADR 0014](./adr/0014-keyframes.md).
+
+- **Model (Rust, `keyframe.rs`):** a media clip may have `keyframes: [{ sourceTime, transform,
+easing }]`, sorted, at times in its _source media_, so trims and splits keep the animation on
+  the same picture. While there are any, they decide the transform.
+- **Resolve:** the clip's transform at a moment is interpolated between the surrounding
+  keyframes (eased by the earlier one) and held outside them. `Layer.transform` is fractional,
+  so slow moves are smooth; the renderers need no changes. `clipTransformAt` gives the editor the
+  same value for the inspector.
+- **Editing (`store/editor.ts`, `lib/keyframes.ts`):** once a clip is animated, slider changes and
+  preview drags write into the keyframe at the playhead (within half a frame), adding one if
+  needed. The panel adds or removes the keyframe at the playhead, steps between keyframes, sets
+  easing and removes them all (keeping the current look). The timeline marks keyframes with
+  diamonds; the accessible track list counts them.
+
 ## Transitions
 
 See [ADR 0012](./adr/0012-transitions.md).

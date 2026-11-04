@@ -1,4 +1,5 @@
 import { clipEnd } from '../engine/types';
+import { visibleKeyframes } from '../lib/keyframes';
 import { formatTimecode } from '../lib/time';
 import { useEditor } from '../store/editor';
 import { trackRows, transitionWindow } from './geometry';
@@ -26,7 +27,9 @@ export function TrackList() {
           const transition = transitionWindow(track.clips[i - 1], c)
             ? `${c.transitionIn!.kind} into `
             : '';
-          return `${transition}${name} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}`;
+          const count = visibleKeyframes(c).length;
+          const keys = count > 0 ? `, ${count} keyframe${count === 1 ? '' : 's'}` : '';
+          return `${transition}${name} from ${formatTimecode(c.start)} to ${formatTimecode(clipEnd(c))}${keys}`;
         });
         return (
           <li key={track.id} aria-label={name}>

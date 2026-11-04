@@ -1,7 +1,9 @@
 import init, { Engine } from '@framewright/engine';
 import type {
   AudioSegment,
+  Easing,
   Layer,
+  Micros,
   TextContent,
   TextStyle,
   TimelineSnapshot,
@@ -91,6 +93,28 @@ export class TimelineEngine {
 
   setClipTransform(clipId: number, transform: Transform): void {
     this.inner.setClipTransform(clipId, transform);
+  }
+
+  /** Add or update the keyframe at `sourceTime` (in the clip's media). */
+  setKeyframe(clipId: number, sourceTime: Micros, transform: Transform): void {
+    this.inner.setKeyframe(clipId, sourceTime, transform);
+  }
+
+  setKeyframeEasing(clipId: number, sourceTime: Micros, easing: Easing): void {
+    this.inner.setKeyframeEasing(clipId, sourceTime, easing);
+  }
+
+  removeKeyframe(clipId: number, sourceTime: Micros): void {
+    this.inner.removeKeyframe(clipId, sourceTime);
+  }
+
+  /** A media clip's transform at timeline time `at` (fractional while animated). */
+  clipTransformAt(clipId: number, at: Micros): Transform {
+    return this.inner.clipTransformAt(clipId, at) as Transform;
+  }
+
+  clearKeyframes(clipId: number): void {
+    this.inner.clearKeyframes(clipId);
   }
 
   /** The engine's default title style (single source of truth). */

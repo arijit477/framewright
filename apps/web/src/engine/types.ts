@@ -19,8 +19,10 @@ export interface Clip {
   muted: boolean;
   /** Set for text clips (no media; `assetId` is empty). */
   text?: TextContent;
-  /** Placement of a media clip; omitted when unchanged. */
+  /** Placement of a media clip; omitted when unchanged. Unused while keyframed. */
   transform?: Transform;
+  /** Animation of the transform, in source-time order; omitted when none. */
+  keyframes?: Keyframe[];
   /** Transition from the clip directly before (inactive unless they touch). */
   transitionIn?: Transition;
 }
@@ -52,6 +54,19 @@ export interface Transform {
   rotationDeg: number;
   opacityPercent: number;
 }
+
+export type Easing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
+
+/** Mirrors crates/engine/src/keyframe.rs. */
+export interface Keyframe {
+  /** Time in the clip's source media, so it stays with the picture when trimmed. */
+  sourceTime: Micros;
+  transform: Transform;
+  /** How the transform moves towards the next keyframe. */
+  easing: Easing;
+}
+
+export const MAX_KEYFRAMES = 100;
 
 export const IDENTITY_TRANSFORM: Transform = {
   x: 500,
@@ -125,6 +140,7 @@ export interface Layer {
   clipDuration: Micros;
   /** Set for text clips: drawn instead of a video frame. */
   text?: TextContent;
+  /** Placement at this moment: fractional while keyframes animate it. */
   transform: Transform;
   /** Set while this layer is part of a transition. */
   transition?: LayerTransition;

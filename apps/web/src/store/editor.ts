@@ -3,13 +3,24 @@ import { AudioOutput } from '../audio/client';
 import { TimelineEngine } from '../engine/engine';
 import {
   clipEnd,
+  IDENTITY_TRANSFORM,
   type Clip,
+  type Easing,
+  type Micros,
   type TextContent,
   type TimelineSnapshot,
   type TrackKind,
   type Transform,
   type Transition,
 } from '../engine/types';
+import {
+  adjacentKeyframe,
+  coversTime,
+  keyframeAt,
+  roundTransform,
+  sourceTimeAt,
+  timelineTimeOf,
+} from '../lib/keyframes';
 import { framesToMicros, microsToFrames } from '../lib/time';
 import { RenderClient } from '../render/client';
 import { ThumbnailClient } from '../thumbnails/client';
@@ -579,8 +590,102 @@ export function previousClip(clip: Clip, timeline: TimelineSnapshot): Clip | nul
   return null;
 }
 
-export function setClipTransform(clipId: number, transform: Transform): boolean {
-  return edit((e) => e.setClipTransform(clipId, transform));
+// ---------------------------------------------------------------- transforms and keyframes
+
+const MOVE_PLAYHEAD = 'Move the playhead over the clip to change its animation.';
+
+function clipById(clipId: number): Clip | undefined {
+  return get()
+    .timeline.tracks.flatMap((t) => t.clips)
+    .find((c) => c.id === clipId);
+}
+
+/**
+ * Write a clip's transform as it should look at timeline time `at`: once the
+ * clip is animated, into its keyframe there (added if needed); otherwise into
+ * the static transform. Throws if an animated clip isn't under `at`.
+ */
+export function writeTransform(e: TimelineEngine, clip: Clip, transform: Transform, at: Micros) {
+  if (!clip.keyframes?.length) {
+    e.setClipTransform(clip.id, transform);
+    return;
+  }
+  if (!coversTime(clip, at)) throw new Error(MOVE_PLAYHEAD);
+  const key = keyframeAt(clip, at);
+  e.setKeyframe(clip.id, key?.sourceTime ?? sourceTimeAt(clip, at), transform);
+}
+
+/** Change a clip's transform at `at` (the playhead by default), keyframing it if animated. */
+export function setClipTransform(
+  clipId: number,
+  transform: Transform,
+  at: Micros = get().playhead,
+): boolean {
+  const clip = clipById(clipId);
+  if (!clip) return false;
+  if (clip.keyframes?.length && !coversTime(clip, at)) {
+    notify('info', MOVE_PLAYHEAD);
+    return false;
+  }
+  return edit((e) => writeTransform(e, clip, transform, at));
+}
+
+/** A media clip's transform at timeline time `at`, as the preview shows it (fractional). */
+export function clipTransformAt(clipId: number, at: Micros): Transform {
+  return requireEngine().clipTransformAt(clipId, at);
+}
+
+/**
+ * Add a keyframe at the playhead holding the clip's current look, or remove
+ * the one there. Removing the last keyframe keeps the clip as it looked.
+ */
+export function toggleKeyframe(clipId: number): boolean {
+  const clip = clipById(clipId);
+  const at = get().playhead;
+  if (!clip) return false;
+  if (!coversTime(clip, at)) {
+    notify('info', 'Move the playhead over the clip to add a keyframe.');
+    return false;
+  }
+  const existing = keyframeAt(clip, at);
+  return edit((e) => {
+    if (existing) {
+      if (clip.keyframes!.length === 1) e.setClipTransform(clipId, existing.transform);
+      e.removeKeyframe(clipId, existing.sourceTime);
+    } else {
+      const current = roundTransform(e.clipTransformAt(clipId, at));
+      e.setKeyframe(clipId, sourceTimeAt(clip, at), current);
+    }
+  });
+}
+
+/** Stop animating, keeping the clip as it looks at the playhead. */
+export function clearKeyframes(clipId: number): boolean {
+  const at = get().playhead;
+  return edit((e) => {
+    e.setClipTransform(clipId, roundTransform(e.clipTransformAt(clipId, at)));
+    e.clearKeyframes(clipId);
+  });
+}
+
+/** Back to centred, full size, upright and opaque, with no animation. */
+export function resetTransform(clipId: number): boolean {
+  return edit((e) => {
+    e.clearKeyframes(clipId);
+    e.setClipTransform(clipId, IDENTITY_TRANSFORM);
+  });
+}
+
+export function setKeyframeEasing(clipId: number, sourceTime: Micros, easing: Easing): boolean {
+  return edit((e) => e.setKeyframeEasing(clipId, sourceTime, easing));
+}
+
+/** Move the playhead to the clip's previous (-1) or next (1) keyframe. */
+export function seekToKeyframe(clipId: number, direction: -1 | 1): void {
+  const clip = clipById(clipId);
+  if (!clip) return;
+  const key = adjacentKeyframe(clip, get().playhead, direction);
+  if (key) seek(timelineTimeOf(clip, key.sourceTime));
 }
 
 // ---------------------------------------------------------------- gestures
