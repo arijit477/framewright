@@ -149,6 +149,14 @@ export class EditorPage {
     );
   }
 
+  /** Add a title at the current playhead and type its text. */
+  async addTitle(text: string) {
+    await this.press('t');
+    const field = this.page.getByLabel('Text content');
+    await field.fill(text);
+    await field.blur(); // commits
+  }
+
   async openExport() {
     await this.press('Control+e');
     await expect(this.page.locator('dialog[open] form')).toBeVisible();
