@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
 import { aspectOf, fillScalePercent } from '../lib/aspect';
+import { cancelReframe, startReframe, useReframe } from '../store/reframe';
 import { Debouncer } from '../lib/debouncer';
 import { roundTransform } from '../lib/keyframes';
 import { registerPendingEdits } from '../lib/pending-edits';
@@ -27,6 +28,8 @@ const PIP_PRESETS = [
  */
 export function TransformInspector({ clip }: { clip: Clip }) {
   const animated = (clip.keyframes?.length ?? 0) > 0;
+  const reframing = useReframe((s) => s.clipId === clip.id);
+  const reframeProgress = useReframe((s) => s.fraction);
   // The scale at which this clip covers the frame (100 when its shape matches).
   const fill = useEditor((s) => {
     const asset = s.assets[clip.assetId];
@@ -144,14 +147,31 @@ export function TransformInspector({ clip }: { clip: Clip }) {
         <TransitionField clip={clip} />
 
         {fill !== 100 && (
-          <button
-            onClick={() =>
-              change({ x: 500, y: 500, scalePercent: fill, rotationDeg: 0 }, { now: true })
-            }
-            title="Scale the clip up until it covers the frame, cropping its edges"
-          >
-            Fill frame
-          </button>
+          <div className="lut-buttons">
+            <button
+              onClick={() =>
+                change({ x: 500, y: 500, scalePercent: fill, rotationDeg: 0 }, { now: true })
+              }
+              title="Scale the clip up until it covers the frame, cropping its edges"
+            >
+              Fill frame
+            </button>
+            {reframing ? (
+              <button onClick={cancelReframe}>
+                Finding faces… {Math.floor(reframeProgress * 100)}% (cancel)
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  debouncer.flush();
+                  startReframe(clip.id);
+                }}
+                title="Fill the frame and follow the faces in the clip with keyframes (replaces its animation)"
+              >
+                Fill and follow faces
+              </button>
+            )}
+          </div>
         )}
         <button
           onClick={() => {

@@ -83,7 +83,7 @@ jobs:
           path: |
             apps/web/e2e/.fixtures/hf-cache
             apps/web/e2e/.fixtures/jfk.wav
-          key: hf-${{ hashFiles('apps/web/src/captions/protocol.ts', 'apps/web/src/captions/translation.ts', 'apps/web/e2e/hf-cache.ts') }}
+          key: hf-${{ hashFiles('apps/web/src/captions/protocol.ts', 'apps/web/src/captions/translation.ts', 'apps/web/src/reframe/protocol.ts', 'apps/web/e2e/hf-cache.ts') }}
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
