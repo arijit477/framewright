@@ -23,26 +23,29 @@ export interface TranslationState {
   step: number;
   steps: number;
   error: string | null;
+  /** Show the translation under the original instead of on its own. */
+  bilingual: boolean;
 }
 
 /** The last languages used, if they still have a route. */
-function loadLanguages(): { from: string; to: string } {
+function loadLanguages(): { from: string; to: string; bilingual: boolean } {
   try {
     const saved = JSON.parse(globalThis.localStorage?.getItem(LANGUAGES_KEY) ?? 'null') as {
       from?: unknown;
       to?: unknown;
+      bilingual?: unknown;
     } | null;
     if (
       typeof saved?.from === 'string' &&
       typeof saved.to === 'string' &&
       translationRoute(saved.from, saved.to)
     ) {
-      return { from: saved.from, to: saved.to };
+      return { from: saved.from, to: saved.to, bilingual: saved.bilingual === true };
     }
   } catch {
     // Use the defaults.
   }
-  return { from: 'en', to: 'es' };
+  return { from: 'en', to: 'es', bilingual: false };
 }
 
 export const useTranslation = create<TranslationState>(() => ({
@@ -72,8 +75,20 @@ export function closeTranslation(): void {
 }
 
 /** Choose languages; a target the new source can't reach moves to the first one it can. */
-export function setTranslationLanguages({ from, to }: { from?: string; to?: string }): void {
-  const next = { from: from ?? get().from, to: to ?? get().to };
+export function setTranslationLanguages({
+  from,
+  to,
+  bilingual,
+}: {
+  from?: string;
+  to?: string;
+  bilingual?: boolean;
+}): void {
+  const next = {
+    from: from ?? get().from,
+    to: to ?? get().to,
+    bilingual: bilingual ?? get().bilingual,
+  };
   if (!translationRoute(next.from, next.to)) next.to = targetLanguages(next.from)[0] ?? next.to;
   set(next);
   try {
@@ -87,7 +102,7 @@ export function setTranslationLanguages({ from, to }: { from?: string; to?: stri
 export function startTranslation(): void {
   if (job) return;
   flushPendingEdits();
-  const { trackId, from, to } = get();
+  const { trackId, from, to, bilingual } = get();
   const route = translationRoute(from, to);
   const clips = trackId === null ? [] : captionClips(trackId);
   if (trackId === null || !route || clips.length === 0) {
@@ -105,7 +120,7 @@ export function startTranslation(): void {
       onDone: (translations) => {
         job = null;
         const captions = captionTranslations(cues, groups, translations, to);
-        if (addTranslatedCaptions(trackId, captions) === null) {
+        if (addTranslatedCaptions(trackId, captions, { bilingual }) === null) {
           set({
             phase: 'error',
             error: 'The captions changed while translating. Please try again.',
@@ -118,7 +133,7 @@ export function startTranslation(): void {
           'info',
           `Translated ${captions.length} caption${captions.length === 1 ? '' : 's'} into ${
             LANGUAGE_NAMES[to]
-          } on a new track.`,
+          }${bilingual ? ', shown under the original' : ''} on a new track.`,
         );
       },
       onError: (message) => {

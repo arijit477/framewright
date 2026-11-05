@@ -305,6 +305,9 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   them); `store/translation.ts` adds the result as a new track (`addTranslatedCaptions`) with the
   same times and style. Both workers share
   `captions/onnx-env.ts`.
+- **Bilingual captions ([ADR 0026](./adr/0026-bilingual-captions.md)):** `captions/bilingual.ts`
+  restyles the original to sit above a shared line (`anchorY: 'bottom'`) and the translation below
+  it (`anchorY: 'top'`), so they never overlap.
 
 ## Keyboard access to the timeline
 

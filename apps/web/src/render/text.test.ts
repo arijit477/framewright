@@ -91,6 +91,17 @@ describe('layoutText', () => {
     expect(l.top + l.height / 2).toBe(540);
   });
 
+  it('anchors the top or bottom edge at y, so stacked blocks grow apart', () => {
+    const lines = (n: number) => Array.from({ length: n }, () => 'word '.repeat(40)).join(' ');
+    for (const n of [1, 3]) {
+      const below = layout(content(lines(n), { y: 800, anchorY: 'top' }), 1000, 1000);
+      const above = layout(content(lines(n), { y: 800, anchorY: 'bottom' }), 1000, 1000);
+      expect(below.top).toBe(800);
+      expect(above.top + above.height).toBe(800);
+      expect(below.lines.length).toBe(above.lines.length);
+    }
+  });
+
   it('anchors left- and right-aligned text at its edge', () => {
     expect(layout(content('Hello', { align: 'left', x: 100 })).left).toBe(192);
     expect(layout(content('Hello', { align: 'right', x: 900 })).left).toBe(1728 - 50);

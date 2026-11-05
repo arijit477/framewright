@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { EditorPage } from './editor-page';
 import { cacheHuggingFace } from './hf-cache';
-import { FIXTURES } from './media';
+import { FIXTURES, frameRgb } from './media';
 
 /**
  * Caption translation with OPUS-MT on the device: captions from jfk.wav
@@ -78,5 +78,70 @@ test.describe('caption translation', () => {
     await expect(dialog()).toBeHidden({ timeout: 300_000 });
     const hindi = (await editor.tracks())[0]!;
     expect(hindi).toMatch(/[ऀ-ॿ]{3}/); // Devanagari
+  });
+
+  /**
+   * Bands of rows with caption text in a 720p frame's lower half (sampled at
+   * half size), as [first, last] rows of the full frame.
+   */
+  const textBands = (path: string, seconds: number) => {
+    const rgb = frameRgb(path, seconds, { crop: '1280:360:0:360', width: 640, height: 180 });
+    const rows: boolean[] = [];
+    for (let y = 0; y < 180; y++) {
+      let lit = 0;
+      for (let x = 0; x < 640; x++) {
+        const i = (y * 640 + x) * 3;
+        if (rgb[i]! > 200 && rgb[i + 1]! > 200 && rgb[i + 2]! > 200) lit++;
+      }
+      rows.push(lit > 3);
+    }
+    const bands: [number, number][] = [];
+    rows.forEach((on, y) => {
+      if (!on) return;
+      const last = bands[bands.length - 1];
+      if (last && y - last[1] <= 4) last[1] = y;
+      else bands.push([y, y]);
+    });
+    return bands.map(([a, b]) => [360 + a * 2, 360 + b * 2 + 1] as [number, number]);
+  };
+
+  test('can show both languages, the translation under the original', async () => {
+    const out = (name: string) => `${test.info().outputDir}/${name}`;
+    const before = await editor.exportTo(out('before'), { resolution: '720p' });
+    await editor.clickClip(0, 1);
+    await editor.page.getByRole('button', { name: 'Translate…' }).click();
+    await dialog()
+      .getByLabel(/Show both languages/)
+      .check();
+    await dialog().getByLabel('From').selectOption({ label: 'English' });
+    await dialog().getByLabel('Into').selectOption({ label: 'Spanish' });
+    await dialog().getByRole('button', { name: 'Translate' }).click();
+    await expect(dialog()).toBeHidden({ timeout: 300_000 });
+    await expect(editor.page.getByText(/shown under the original/)).toBeVisible();
+    // The line between them: 830/1000 of the frame (BILINGUAL.maxSeam), row 598 at 720p.
+    const seam = 598;
+    const path = await editor.exportTo(out('bilingual'), { resolution: '720p' });
+    for (const s of [2, 8]) {
+      const bands = textBands(path, s);
+      const detail = `${s} s: ${JSON.stringify(bands)}`;
+      expect(
+        bands.some(([, b]) => b < seam),
+        detail,
+      ).toBe(true); // the original, above
+      expect(
+        bands.some(([a]) => a > seam),
+        detail,
+      ).toBe(true); // the translation, below
+      expect(
+        bands.every(([a, b]) => b < seam || a > seam),
+        detail,
+      ).toBe(true); // no overlap
+    }
+
+    // One undo removes the translation and puts the original back where it was.
+    await editor.press('Control+z');
+    expect((await editor.tracks()).join()).not.toMatch(/país/);
+    const undone = await editor.exportTo(out('undone'), { resolution: '720p' });
+    for (const s of [2, 8]) expect(textBands(undone, s)).toEqual(textBands(before, s));
   });
 });
