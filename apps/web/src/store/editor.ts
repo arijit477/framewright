@@ -8,6 +8,7 @@ import {
   type Clip,
   type ColorAdjust,
   type CopiedClip,
+  type Keyframe,
   type Easing,
   type LutRef,
   type Micros,
@@ -549,6 +550,9 @@ export async function loadProject(project: {
 }
 
 /** What an export needs: the saved project and the files its clips use. */
+/** The file behind an asset (null if it's missing). */
+export const assetFile = (assetId: string): File | null => assetFiles.get(assetId) ?? null;
+
 export function projectForExport() {
   const e = requireEngine();
   const used = new Set(get().timeline.tracks.flatMap((t) => t.clips.map((c) => c.assetId)));
@@ -1129,6 +1133,20 @@ export function trackCaptions(trackId: number): CaptionCue[] {
     startUs: c.start,
     endUs: clipEnd(c),
   }));
+}
+
+/**
+ * Replace a clip's animation with `keyframes` (e.g. from reframing), as one
+ * undo step. Its still transform becomes the first keyframe's, so removing
+ * the keyframes later leaves the clip filling the frame.
+ */
+export function setClipAnimation(clipId: number, keyframes: readonly Keyframe[]): boolean {
+  if (keyframes.length === 0) return false;
+  return edit((e) => {
+    e.clearKeyframes(clipId);
+    e.setClipTransform(clipId, keyframes[0]!.transform);
+    for (const k of keyframes) e.setKeyframe(clipId, k.sourceTime, k.transform);
+  });
 }
 
 /** Change the frame's shape (one undo step). Positions are relative, so the layout carries over. */

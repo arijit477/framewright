@@ -15,6 +15,8 @@ export const FIXTURES = {
   speech: 'jfk.wav',
   silence: 'silence.wav',
   pauses: 'pauses.wav',
+  portrait: 'portrait.jpg',
+  facePan: 'face-pan.webm',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 

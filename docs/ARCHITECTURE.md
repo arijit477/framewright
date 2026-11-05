@@ -284,6 +284,13 @@ See [ADR 0029](./adr/0029-frame-shapes.md). The timeline's `aspect` sets the fra
 exports: the resolution is the short edge). The store sends the renderer a `resize` whenever
 the shape changes. Text sizes refer to the frame's short side.
 
+## Smart reframing
+
+See [ADR 0030](./adr/0030-smart-reframing.md). `reframe/reframe.worker.ts` samples a clip's
+frames (every 0.25 s) and finds faces with UltraFace on ONNX Runtime Web (`reframe/faces.ts`:
+letterboxing, decoding, merging duplicates). `reframe/path.ts` turns them into a calm camera path
+and transform keyframes. `store/reframe.ts` applies them with `setClipAnimation` (one undo step).
+
 ## Removing silences
 
 See [ADR 0028](./adr/0028-remove-silences.md).

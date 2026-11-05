@@ -14,6 +14,12 @@ import { FIXTURES, fixture } from './media';
  */
 const SPEECH_URL =
   'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav';
+/**
+ * A portrait photo from the same sample set, for face detection. Used only to
+ * make a test video (never committed or shipped).
+ */
+const PORTRAIT_URL =
+  'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/portrait-of-woman_small.jpg';
 
 export default function globalSetup() {
   mkdirSync(fixture(''), { recursive: true });
@@ -77,6 +83,17 @@ export default function globalSetup() {
     // curl rather than fetch(): it honours HTTPS_PROXY where downloads must use one.
     execFileSync('curl', ['-fsSL', '--retry', '3', '-o', fixture(FIXTURES.speech), SPEECH_URL]);
   }
+  if (!existsSync(fixture(FIXTURES.portrait))) {
+    execFileSync('curl', ['-fsSL', '--retry', '3', '-o', fixture(FIXTURES.portrait), PORTRAIT_URL]);
+  }
+  // 6 s, 1280x720 green, with the portrait (240x300) sliding from left to right:
+  // a face for reframing to follow. Its centre moves from x = 200 to 1080 px.
+  make(
+    FIXTURES.facePan,
+    `-f lavfi -i color=c=green:size=1280x720:rate=30:duration=6 -loop 1 -i ${fixture(FIXTURES.portrait)} ` +
+      '-filter_complex [1:v]scale=240:300[p];[0:v][p]overlay=x=80+146.667*t:y=210:shortest=1 ' +
+      '-t 6 -c:v libvpx-vp9 -b:v 1M -deadline realtime',
+  );
   // 4 s of silence (with an audio track): Whisper must not invent words for it.
   make(FIXTURES.silence, '-f lavfi -i anullsrc=r=16000:cl=mono -t 4');
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.
