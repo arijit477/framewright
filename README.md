@@ -24,8 +24,8 @@ leaves your machine.
   position and fade/slide/pop animations, rendered identically in preview and export
 - Auto captions: speech becomes editable captions on their own track, recognised **on your
   device** by OpenAI's Whisper, on the graphics card when there is one (the model downloads once,
-  about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Save them as .srt
-  or .vtt
+  about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Translate them into
+  other languages on the device (OPUS-MT), and save them as .srt or .vtt
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
 - Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks
@@ -56,8 +56,6 @@ leaves your machine.
   <kbd>Home</kbd>/<kbd>End</kbd> and <kbd>Shift</kbd>+arrows to select clips;
   <kbd>Alt</kbd>+arrows to move them (by a frame, or to another track), <kbd>[</kbd>/<kbd>]</kbd> to
   trim to the playhead, <kbd>,</kbd>/<kbd>.</kbd> to step a frame
-
-Coming next: caption translation.
 
 ## Architecture at a glance
 

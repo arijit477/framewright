@@ -4,17 +4,14 @@
  * then runs Whisper in the browser with Transformers.js. The model downloads
  * once from Hugging Face and is cached; the audio never leaves the device.
  */
-import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
+import { pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 import type { InputAudioTrack } from 'mediabunny';
-// The ONNX Runtime engine ships with the app instead of coming from a CDN at run time.
-// The asyncify build holds both the processor and the WebGPU backends.
-import ortMjs from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url';
-import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 import { Mixer } from '../audio/mixer';
 import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
 import { openAsset } from '../media/asset';
 import { blockBoundaries, isSilent } from './blocks';
+import { downloadProgress } from './onnx-env';
 import {
   CAPTION_MODELS,
   MODEL_FILES,
@@ -24,9 +21,6 @@ import {
   type ToCaptionsWorker,
 } from './protocol';
 import type { TimedText } from './segments';
-
-env.allowLocalModels = false;
-env.backends.onnx.wasm!.wasmPaths = { mjs: ortMjs, wasm: ortWasm };
 
 const send = (message: FromCaptionsWorker) => self.postMessage(message);
 
@@ -68,24 +62,13 @@ async function recognise(
     throw new Error('This browser offers no graphics card for WebGPU.');
   }
   const { repo, revision } = CAPTION_MODELS[model];
-  // Each model file reports its own progress; overall progress is bytes over all files.
-  const files = new Map<string, { loaded: number; total: number }>();
   send({ type: 'progress', stage: 'model', fraction: 0 });
   const transcriber = (await pipeline('automatic-speech-recognition', repo, {
     revision,
     ...structuredClone(MODEL_FILES[device]),
-    progress_callback: (info: {
-      status: string;
-      file?: string;
-      loaded?: number;
-      total?: number;
-    }) => {
-      if (info.status !== 'progress' || !info.file || !info.total) return;
-      files.set(info.file, { loaded: info.loaded ?? 0, total: info.total });
-      const all = [...files.values()];
-      const fraction = all.reduce((n, f) => n + f.loaded, 0) / all.reduce((n, f) => n + f.total, 0);
-      send({ type: 'progress', stage: 'model', fraction });
-    },
+    progress_callback: downloadProgress((fraction) =>
+      send({ type: 'progress', stage: 'model', fraction }),
+    ),
   } as Parameters<typeof pipeline>[2])) as AutomaticSpeechRecognitionPipeline;
 
   try {

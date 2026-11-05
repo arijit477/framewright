@@ -11,6 +11,7 @@ import {
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
 import { toSrt, toVtt } from '../captions/srt';
+import { openTranslation } from '../store/translation';
 import {
   CAPTION_HIGHLIGHT,
   selectedClip,
@@ -338,13 +339,16 @@ function CaptionFiles({ clipId }: { clipId: number }) {
   };
   return (
     <div className="field">
-      Captions file (this track’s titles)
+      This track’s captions
       <div className="lut-buttons">
         <button type="button" onClick={() => save('srt')}>
           Save as .srt
         </button>
         <button type="button" onClick={() => save('vtt')}>
           Save as .vtt
+        </button>
+        <button type="button" onClick={() => openTranslation(trackId)}>
+          Translate…
         </button>
       </div>
     </div>

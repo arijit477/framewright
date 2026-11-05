@@ -298,6 +298,11 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   words in the text drops the timings (`updateText`).
 - **Store (`store/captions.ts`):** runs the job, shows progress, and adds the captions as title
   clips on a new top track in one undo step (`addCaptions`).
+- **Translation ([ADR 0024](./adr/0024-caption-translation.md)):** `captions/translation.ts` picks
+  the OPUS-MT models for a language pair (direct, or through English); `translate.worker.ts` runs
+  them over the track's titles; `store/translation.ts` adds the result as a new track
+  (`addTranslatedCaptions`) with the same times and style. Both workers share
+  `captions/onnx-env.ts`.
 
 ## Keyboard access to the timeline
 
