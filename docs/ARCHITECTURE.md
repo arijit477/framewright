@@ -285,6 +285,10 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   shared `Mixer`), skips silent blocks, and runs Whisper with Transformers.js on ONNX Runtime Web
   (the engine is bundled). The model (pinned revisions in `captions/protocol.ts`) downloads from
   Hugging Face once and is cached by the browser. One worker per run, terminated after.
+- **Devices ([ADR 0023](./adr/0023-webgpu-captions.md)):** with WebGPU, the encoder runs on the
+  graphics card at full precision and the decoder on the processor at 8-bit (`MODEL_FILES`).
+  If the GPU fails, the worker reports `fallback` and the client (`captions/client.ts`) restarts
+  the run on the processor in a fresh worker.
 - **Shaping (`captions/segments.ts`):** timed words become readable captions (two lines of 42
   characters, 0.7–6 s, broken at pauses and sentence ends, no overlaps), each keeping its words'
   times; `captions/srt.ts` writes .srt and .vtt.
@@ -500,7 +504,5 @@ Vite dev/preview servers, Vercel (root `vercel.json`) and Netlify/Cloudflare Pag
 
 - **Effects (Phase 2)**: WGSL fragment shaders registered as plugins with a typed parameter
   schema, so the UI can generate controls automatically.
-- **Captions (Phase 3)**: Whisper running locally via transformers.js on WebGPU, producing
-  word-level timestamps.
 - **Desktop (later)**: Tauri 2 shell with the same React UI, the engine compiled natively, and
   `wgpu` rendering, which runs the same WGSL shaders.

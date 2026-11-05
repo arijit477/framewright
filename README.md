@@ -23,8 +23,8 @@ leaves your machine.
 - Text overlays: titles and captions with font, size, colour, background box, alignment,
   position and fade/slide/pop animations, rendered identically in preview and export
 - Auto captions: speech becomes editable captions on their own track, recognised **on your
-  device** by OpenAI's Whisper (the model downloads once, about 41–77 MB, then works offline;
-  your audio is never uploaded), with each word lighting up as it's spoken. Save them as .srt
+  device** by OpenAI's Whisper, on the graphics card when there is one (the model downloads once,
+  about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Save them as .srt
   or .vtt
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
@@ -57,7 +57,7 @@ leaves your machine.
   <kbd>Alt</kbd>+arrows to move them (by a frame, or to another track), <kbd>[</kbd>/<kbd>]</kbd> to
   trim to the playhead, <kbd>,</kbd>/<kbd>.</kbd> to step a frame
 
-Coming next: WebGPU-accelerated recognition.
+Coming next: caption translation.
 
 ## Architecture at a glance
 
