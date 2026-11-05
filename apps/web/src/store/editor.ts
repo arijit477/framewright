@@ -24,7 +24,7 @@ import {
   sourceTimeAt,
   timelineTimeOf,
 } from '../lib/keyframes';
-import type { Caption } from '../captions/segments';
+import { wrapLines, type Caption } from '../captions/segments';
 import type { CaptionCue } from '../captions/srt';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
@@ -985,15 +985,49 @@ export function addCaptions(
   return added ? trackId : null;
 }
 
+/**
+ * Add a translation of a caption track as a new top track, in one undo step:
+ * each title keeps its time and style, with `texts[i]` (in the track's time
+ * order) as its text. Word timings belong to the original words, so the
+ * translation has none (and no word highlight). Returns the new track's id.
+ */
+export function addTranslatedCaptions(
+  sourceTrackId: number,
+  texts: readonly string[],
+): number | null {
+  const source = captionClips(sourceTrackId);
+  if (source.length !== texts.length) return null;
+  let trackId: number | null = null;
+  const added = edit((e) => {
+    trackId = e.addTrack('video');
+    source.forEach((clip, i) => {
+      const { highlight: _, ...style } = clip.text!.style;
+      const text = texts[i]!.trim() || clip.text!.text; // never an empty title
+      e.addTextClip(trackId!, clip.start, clip.duration, {
+        text: wrapLines(text),
+        style,
+      });
+    });
+  });
+  return added ? trackId : null;
+}
+
+/** A track's titles in time order. */
+export function captionClips(trackId: number): Clip[] {
+  const track = get().timeline.tracks.find((t) => t.id === trackId);
+  return (track?.clips ?? []).filter((c) => c.text).sort((a, b) => a.start - b.start);
+}
+
 /** The default colour of the word being spoken in a caption. */
 export const CAPTION_HIGHLIGHT = '#facc15';
 
 /** A track's titles as captions (for .srt / .vtt files), in time order. */
 export function trackCaptions(trackId: number): CaptionCue[] {
-  const track = get().timeline.tracks.find((t) => t.id === trackId);
-  return (track?.clips ?? [])
-    .filter((c) => c.text)
-    .map((c) => ({ text: c.text!.text, startUs: c.start, endUs: clipEnd(c) }));
+  return captionClips(trackId).map((c) => ({
+    text: c.text!.text,
+    startUs: c.start,
+    endUs: clipEnd(c),
+  }));
 }
 
 /**

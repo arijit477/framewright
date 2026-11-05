@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { LANGUAGE_NAMES, SPEECH_LANGUAGES } from '../captions/languages';
 import { CAPTION_MODELS, type CaptionModel, type CaptionStage } from '../captions/protocol';
 import {
   cancelCaptions,
@@ -9,33 +10,6 @@ import {
   startCaptions,
   useCaptions,
 } from '../store/captions';
-
-/** Languages offered by name; Whisper understands many more when detecting. */
-const LANGUAGES: [code: string, name: string][] = [
-  ['en', 'English'],
-  ['hi', 'Hindi'],
-  ['bn', 'Bengali'],
-  ['ur', 'Urdu'],
-  ['ta', 'Tamil'],
-  ['te', 'Telugu'],
-  ['mr', 'Marathi'],
-  ['es', 'Spanish'],
-  ['fr', 'French'],
-  ['de', 'German'],
-  ['pt', 'Portuguese'],
-  ['it', 'Italian'],
-  ['nl', 'Dutch'],
-  ['ru', 'Russian'],
-  ['uk', 'Ukrainian'],
-  ['pl', 'Polish'],
-  ['tr', 'Turkish'],
-  ['ar', 'Arabic'],
-  ['id', 'Indonesian'],
-  ['vi', 'Vietnamese'],
-  ['ja', 'Japanese'],
-  ['ko', 'Korean'],
-  ['zh', 'Chinese'],
-];
 
 const STAGES: Record<CaptionStage, string> = {
   audio: 'Preparing the sound',
@@ -122,9 +96,9 @@ function CaptionsBody() {
           onChange={(e) => setCaptionOptions({ language: e.target.value || null })}
         >
           <option value="">Detect automatically</option>
-          {LANGUAGES.map(([code, name]) => (
+          {SPEECH_LANGUAGES.map((code) => (
             <option key={code} value={code}>
-              {name}
+              {LANGUAGE_NAMES[code]}
             </option>
           ))}
         </select>

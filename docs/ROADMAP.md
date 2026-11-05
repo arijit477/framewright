@@ -74,7 +74,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Auto-captions with local Whisper (in the browser, on the device), SRT and WebVTT export
 - [x] Word-by-word caption highlighting
 - [x] WebGPU-accelerated recognition (encoder on the graphics card, processor fallback)
-- [ ] Caption translation
+- [x] Caption translation (OPUS-MT on the device, through English where there's no direct model)
 - [ ] Silence detection and one-click removal
 - [ ] Aspect-ratio presets (9:16, 1:1, 16:9) with smart reframing
 - [ ] Background removal (segmentation model, permissive licence only)
