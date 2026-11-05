@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { EditorPage } from './editor-page';
 import { cacheHuggingFace } from './hf-cache';
@@ -143,5 +144,36 @@ test.describe('caption translation', () => {
     expect((await editor.tracks()).join()).not.toMatch(/país/);
     const undone = await editor.exportTo(out('undone'), { resolution: '720p' });
     for (const s of [2, 8]) expect(textBands(undone, s)).toEqual(textBands(before, s));
+  });
+
+  test('both languages can be saved in one subtitle file', async () => {
+    await editor.clickClip(0, 1);
+    await editor.page.getByRole('button', { name: 'Translate…' }).click();
+    await dialog()
+      .getByLabel(/Show both languages/)
+      .check();
+    await dialog().getByLabel('From').selectOption({ label: 'English' });
+    await dialog().getByLabel('Into').selectOption({ label: 'Spanish' });
+    await dialog().getByRole('button', { name: 'Translate' }).click();
+    await expect(dialog()).toBeHidden({ timeout: 300_000 });
+
+    await editor.clickClip(1, 1); // an English caption (the original track, now second)
+    const partner = editor.page.getByLabel('Both languages in one file, with');
+    await expect(partner).toHaveValue(/\d+/);
+    await expect(partner.locator('option:checked')).toHaveText('Video 3'); // the translation
+    const download = editor.page.waitForEvent('download');
+    await editor.page.getByRole('button', { name: 'Save both as .srt' }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe('captions-bilingual.srt');
+    const srt = readFileSync(await file.path(), 'utf8');
+    const cues = srt.trim().split(/\n\n/);
+    expect(cues).toHaveLength(2); // one per caption: the languages share each cue
+    for (const cue of cues) {
+      const [, time, ...lines] = cue.split('\n');
+      expect(time).toMatch(/^00:00:\d\d,\d{3} --> 00:00:\d\d,\d{3}$/);
+      const text = lines.join(' ');
+      // English first (the original shows above the translation), then Spanish.
+      expect(text, cue).toMatch(/\b(Americans|country)\b.*\b(compatriotas|país)\b/);
+    }
   });
 });

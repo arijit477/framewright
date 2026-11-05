@@ -27,7 +27,7 @@ import {
 } from '../lib/keyframes';
 import { bilingualStyles } from '../captions/bilingual';
 import { wrapLines, type Caption } from '../captions/segments';
-import type { CaptionCue } from '../captions/srt';
+import { combineCues, type CaptionCue } from '../captions/srt';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
 import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
@@ -1019,6 +1019,43 @@ export function addTranslatedCaptions(
     });
   });
   return added ? trackId : null;
+}
+
+/**
+ * The other tracks with titles on them, the one whose timing best matches
+ * `trackId`'s first (for a translation: its original, or the reverse).
+ */
+export function captionPartners(trackId: number): number[] {
+  const mine = captionClips(trackId);
+  const overlap = (other: number) =>
+    captionClips(other).reduce(
+      (total, b) =>
+        total +
+        mine.reduce(
+          (sum, a) =>
+            sum + Math.max(0, Math.min(clipEnd(a), clipEnd(b)) - Math.max(a.start, b.start)),
+          0,
+        ),
+      0,
+    );
+  return get()
+    .timeline.tracks.filter((t) => t.id !== trackId && t.clips.some((c) => c.text))
+    .map((t) => ({ id: t.id, overlap: overlap(t.id) }))
+    .sort((a, b) => b.overlap - a.overlap)
+    .map((t) => t.id);
+}
+
+/**
+ * Two caption tracks as one bilingual file: the track shown higher on screen
+ * (for bilingual captions, the original) gives each line pair its first line.
+ */
+export function bilingualCaptions(trackA: number, trackB: number): CaptionCue[] {
+  const height = (trackId: number) => {
+    const clips = captionClips(trackId);
+    return clips.reduce((sum, c) => sum + c.text!.style.y, 0) / Math.max(1, clips.length);
+  };
+  const [first, second] = height(trackA) <= height(trackB) ? [trackA, trackB] : [trackB, trackA];
+  return combineCues(trackCaptions(first), trackCaptions(second));
 }
 
 /** A track's titles in time order. */
