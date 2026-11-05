@@ -83,10 +83,7 @@ export function ColorField({ clips }: { clips: readonly Clip[] }) {
       {/* In processing order: white balance, then the LUT, then tone. */}
       {slider('Temperature', 'temperature')}
       {slider('Tint', 'tint')}
-      <LutField
-        key={clips.map((c) => `${c.id}:${c.lut?.lutId}:${c.lut?.intensityPercent}`).join()}
-        clips={clips}
-      />
+      <LutField clips={clips} />
       {slider('Brightness', 'brightness')}
       {slider('Contrast', 'contrast')}
       {slider('Saturation', 'saturation')}
@@ -124,20 +121,18 @@ function LutField({ clips }: { clips: readonly Clip[] }) {
   const sameLut = allSame(clips, (c) => c.lut?.lutId ?? '');
   const current = main.lut;
   const withLut = clips.filter((c) => c.lut && luts[c.lut.lutId]);
-  const [intensity, setIntensity] = useState(withLut.at(-1)?.lut?.intensityPercent ?? 100);
-  const [touched, setTouched] = useState(false);
-  const mixedIntensity = !touched && !allSame(withLut, (c) => c.lut!.intensityPercent);
-  const commitIntensity = () => {
-    if (touched && withLut.some((c) => c.lut!.intensityPercent !== intensity)) {
-      setClipsLutIntensity(ids, intensity);
-    }
-  };
   const choose = (lutId: string) =>
     setClipsLut(ids, lutId ? { lutId, intensityPercent: current?.intensityPercent ?? 100 } : null);
+  // Files load at their own pace: only the most recently chosen one is applied
+  // (an earlier, bigger file finishing later must not replace it). Each still
+  // joins the project's LUTs.
+  const latestLoad = useRef(0);
   const load = async (file: File | undefined) => {
     if (!file) return;
+    const request = ++latestLoad.current;
     const id = await importLut(file);
-    if (id) setClipsLut(ids, { lutId: id, intensityPercent: 100 });
+    if (id && request === latestLoad.current)
+      setClipsLut(ids, { lutId: id, intensityPercent: 100 });
   };
 
   const options = Object.values(luts).sort((a, b) => a.name.localeCompare(b.name));
@@ -189,20 +184,44 @@ function LutField({ clips }: { clips: readonly Clip[] }) {
         }}
       />
       {withLut.length > 0 && (
-        <Slider
-          label="LUT intensity"
-          unit="%"
-          value={intensity}
-          min={0}
-          max={100}
-          mixed={mixedIntensity}
-          onChange={(v) => {
-            setTouched(true);
-            setIntensity(v);
-          }}
-          onCommit={commitIntensity}
+        // Keyed by the clips' LUTs, so the slider starts again from what they use after any
+        // change (undo, a new LUT). Only the slider: the file input and the manager must stay
+        // mounted, or a file chosen while a load finishes would be lost.
+        <LutIntensity
+          key={withLut.map((c) => `${c.id}:${c.lut!.lutId}:${c.lut!.intensityPercent}`).join()}
+          clips={withLut}
         />
       )}
     </>
+  );
+}
+
+/** How strongly the clips' LUTs apply (one value for all; "mixed" until moved). */
+function LutIntensity({ clips }: { clips: readonly Clip[] }) {
+  const [intensity, setIntensity] = useState(clips.at(-1)?.lut?.intensityPercent ?? 100);
+  const [touched, setTouched] = useState(false);
+  const mixed = !touched && !allSame(clips, (c) => c.lut!.intensityPercent);
+  const commit = () => {
+    if (touched && clips.some((c) => c.lut!.intensityPercent !== intensity)) {
+      setClipsLutIntensity(
+        clips.map((c) => c.id),
+        intensity,
+      );
+    }
+  };
+  return (
+    <Slider
+      label="LUT intensity"
+      unit="%"
+      value={intensity}
+      min={0}
+      max={100}
+      mixed={mixed}
+      onChange={(v) => {
+        setTouched(true);
+        setIntensity(v);
+      }}
+      onCommit={commit}
+    />
   );
 }
