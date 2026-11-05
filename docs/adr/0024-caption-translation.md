@@ -1,6 +1,6 @@
 # 0024: Caption translation
 
-- **Status:** Accepted
+- **Status:** Accepted (translation by sentence instead of by caption: [ADR 0025](./0025-sentence-level-translation.md))
 - **Date:** 2026-11-05
 
 ## Context

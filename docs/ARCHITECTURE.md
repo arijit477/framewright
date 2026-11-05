@@ -300,8 +300,10 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   clips on a new top track in one undo step (`addCaptions`).
 - **Translation ([ADR 0024](./adr/0024-caption-translation.md)):** `captions/translation.ts` picks
   the OPUS-MT models for a language pair (direct, or through English); `translate.worker.ts` runs
-  them over the track's titles; `store/translation.ts` adds the result as a new track
-  (`addTranslatedCaptions`) with the same times and style. Both workers share
+  them over the track's titles, a whole sentence at a time ([ADR 0025](./adr/0025-sentence-level-translation.md):
+  `captions/sentences.ts` groups captions into sentences and shares each translation back over
+  them); `store/translation.ts` adds the result as a new track (`addTranslatedCaptions`) with the
+  same times and style. Both workers share
   `captions/onnx-env.ts`.
 
 ## Keyboard access to the timeline

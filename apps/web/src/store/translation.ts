@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { LANGUAGE_NAMES } from '../captions/languages';
+import { captionTranslations, sentenceInputs } from '../captions/sentences';
 import { TranslationJob } from '../captions/translate-client';
 import { targetLanguages, translationRoute, type TranslationStage } from '../captions/translation';
 import { flushPendingEdits } from '../lib/pending-edits';
 import { addTranslatedCaptions, captionClips, notify, selectClip } from './editor';
+import { clipEnd } from '../engine/types';
 
 const LANGUAGES_KEY = 'framewright.translationLanguages';
 
@@ -93,13 +95,17 @@ export function startTranslation(): void {
     return;
   }
   set({ phase: 'running', stage: 'model', fraction: 0, step: 1, steps: route.length, error: null });
+  // Whole sentences translate better than the caption-sized pieces they're split into.
+  const cues = clips.map((c) => ({ text: c.text!.text, startUs: c.start, endUs: clipEnd(c) }));
+  const { groups, texts } = sentenceInputs(cues);
   job = new TranslationJob(
-    { texts: clips.map((c) => c.text!.text), route },
+    { texts, route },
     {
       onProgress: (stage, fraction, step, steps) => set({ stage, fraction, step, steps }),
-      onDone: (texts) => {
+      onDone: (translations) => {
         job = null;
-        if (addTranslatedCaptions(trackId, texts) === null) {
+        const captions = captionTranslations(cues, groups, translations, to);
+        if (addTranslatedCaptions(trackId, captions) === null) {
           set({
             phase: 'error',
             error: 'The captions changed while translating. Please try again.',
@@ -110,7 +116,7 @@ export function startTranslation(): void {
         set({ open: false, phase: 'idle' });
         notify(
           'info',
-          `Translated ${texts.length} caption${texts.length === 1 ? '' : 's'} into ${
+          `Translated ${captions.length} caption${captions.length === 1 ? '' : 's'} into ${
             LANGUAGE_NAMES[to]
           } on a new track.`,
         );
