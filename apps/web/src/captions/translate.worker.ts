@@ -12,8 +12,12 @@ import {
   type ToTranslationWorker,
 } from './translation';
 
-/** Captions translated together: fewer, larger model calls, still frequent progress. */
-const BATCH = 8;
+/**
+ * Sentences translated together. Measured on a 5.5-minute video (61 captions,
+ * `e2e/translation-bench.spec.ts`, model cached): 4 → 19 s, 8 → 11.6–12 s,
+ * 16 → 9–10.5 s, 32 → 9.5 s.
+ */
+const BATCH = 16;
 
 const send = (message: FromTranslationWorker) => self.postMessage(message);
 
