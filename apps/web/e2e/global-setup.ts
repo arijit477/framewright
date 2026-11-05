@@ -41,6 +41,18 @@ export default function globalSetup() {
     '-f lavfi -i color=c=blue:size=1280x720:rate=30 -f lavfi -i sine=frequency=880:sample_rate=48000 ' +
       '-t 4 -c:v libvpx-vp9 -b:v 200k -deadline realtime -c:a libopus -b:a 96k -shortest',
   );
+  // 5.8 s WAV: 440 Hz tone 1 s, silence 1.5 s, tone 1 s, silence 0.3 s, tone 1 s,
+  // silence 1 s. Pauses of known length, for silence removal.
+  make(
+    FIXTURES.pauses,
+    '-f lavfi -i sine=frequency=440:sample_rate=48000:duration=1 ' +
+      '-f lavfi -i anullsrc=r=48000:cl=mono:d=1.5 ' +
+      '-f lavfi -i sine=frequency=440:sample_rate=48000:duration=1 ' +
+      '-f lavfi -i anullsrc=r=48000:cl=mono:d=0.3 ' +
+      '-f lavfi -i sine=frequency=440:sample_rate=48000:duration=1 ' +
+      '-f lavfi -i anullsrc=r=48000:cl=mono:d=1 ' +
+      '-filter_complex concat=n=6:v=0:a=1',
+  );
   // 6 s WAV: 440 Hz for 3 s, then 880 Hz for 3 s. Shows whether sound plays at the
   // right speed (when the step comes) and keeps its pitch (which tones there are).
   make(

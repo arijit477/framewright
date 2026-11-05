@@ -14,6 +14,7 @@ export const FIXTURES = {
   lut: 'swap.cube',
   speech: 'jfk.wav',
   silence: 'silence.wav',
+  pauses: 'pauses.wav',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 

@@ -78,7 +78,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Sentence-level caption translation (sentences split over captions translate whole)
 - [x] Bilingual captions (the translation under the original, never overlapping), and bilingual .srt/.vtt files
 - [x] Faster translation (measured; it stays on the processor, see ADR 0027)
-- [ ] Silence detection and one-click removal
+- [x] Silence detection and one-click removal (selected clips; adjustable threshold, length and margin)
 - [ ] Aspect-ratio presets (9:16, 1:1, 16:9) with smart reframing
 - [ ] Background removal (segmentation model, permissive licence only)
 - [ ] Templates
