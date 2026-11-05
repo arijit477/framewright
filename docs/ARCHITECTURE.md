@@ -307,7 +307,8 @@ See [ADR 0021](./adr/0021-auto-captions.md).
   `captions/onnx-env.ts`.
 - **Bilingual captions ([ADR 0026](./adr/0026-bilingual-captions.md)):** `captions/bilingual.ts`
   restyles the original to sit above a shared line (`anchorY: 'bottom'`) and the translation below
-  it (`anchorY: 'top'`), so they never overlap.
+  it (`anchorY: 'top'`), so they never overlap. `combineCues` (`captions/srt.ts`) pairs two tracks'
+  cues by time for bilingual .srt/.vtt files (`bilingualCaptions`).
 
 ## Keyboard access to the timeline
 

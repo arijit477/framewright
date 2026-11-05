@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   TEXT_LIMITS,
   type Clip,
@@ -10,10 +10,13 @@ import {
 } from '../engine/types';
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
-import { toSrt, toVtt } from '../captions/srt';
+import { toSrt, toVtt, type CaptionCue } from '../captions/srt';
+import { trackNames } from '../timeline/geometry';
 import { openTranslation } from '../store/translation';
 import {
+  bilingualCaptions,
   CAPTION_HIGHLIGHT,
+  captionPartners,
   selectedClip,
   trackCaptions,
   updateText,
@@ -323,34 +326,72 @@ function CaptionFiles({ clipId }: { clipId: number }) {
   const trackId = useEditor(
     (s) => s.timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId))?.id ?? null,
   );
+  // Only edits change these (not playback), so work them out per timeline.
+  const timeline = useEditor((s) => s.timeline);
+  const partners = useMemo(
+    () => (trackId === null ? [] : captionPartners(trackId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- captionPartners reads `timeline`
+    [timeline, trackId],
+  );
+  const names = useMemo(() => trackNames(timeline), [timeline]);
+  const [chosen, setChosen] = useState<number | null>(null);
   if (trackId === null) return null;
-  const save = (format: 'srt' | 'vtt') => {
-    const captions = trackCaptions(trackId);
+  const partner = chosen !== null && partners.includes(chosen) ? chosen : (partners[0] ?? null);
+
+  const download = (captions: CaptionCue[], format: 'srt' | 'vtt', name: string) => {
     const text = format === 'srt' ? toSrt(captions) : toVtt(captions);
     const url = URL.createObjectURL(
       new Blob([text], { type: format === 'srt' ? 'application/x-subrip' : 'text/vtt' }),
     );
     const link = Object.assign(document.createElement('a'), {
       href: url,
-      download: `captions.${format}`,
+      download: `${name}.${format}`,
     });
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
+  const save = (format: 'srt' | 'vtt') => download(trackCaptions(trackId), format, 'captions');
+  const saveBoth = (format: 'srt' | 'vtt') =>
+    partner !== null && download(bilingualCaptions(trackId, partner), format, 'captions-bilingual');
+
   return (
-    <div className="field">
-      This track’s captions
-      <div className="lut-buttons">
-        <button type="button" onClick={() => save('srt')}>
-          Save as .srt
-        </button>
-        <button type="button" onClick={() => save('vtt')}>
-          Save as .vtt
-        </button>
-        <button type="button" onClick={() => openTranslation(trackId)}>
-          Translate…
-        </button>
+    <>
+      <div className="field">
+        This track’s captions
+        <div className="lut-buttons">
+          <button type="button" onClick={() => save('srt')}>
+            Save as .srt
+          </button>
+          <button type="button" onClick={() => save('vtt')}>
+            Save as .vtt
+          </button>
+          <button type="button" onClick={() => openTranslation(trackId)}>
+            Translate…
+          </button>
+        </div>
       </div>
-    </div>
+      {partner !== null && (
+        <div className="field">
+          <label className="field">
+            Both languages in one file, with
+            <select value={partner} onChange={(e) => setChosen(Number(e.target.value))}>
+              {partners.map((id) => (
+                <option key={id} value={id}>
+                  {names.get(id) ?? `Track ${id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="lut-buttons">
+            <button type="button" onClick={() => saveBoth('srt')}>
+              Save both as .srt
+            </button>
+            <button type="button" onClick={() => saveBoth('vtt')}>
+              Save both as .vtt
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

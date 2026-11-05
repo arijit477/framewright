@@ -26,7 +26,7 @@ leaves your machine.
   device** by OpenAI's Whisper, on the graphics card when there is one (the model downloads once,
   about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Translate them into
   other languages on the device (OPUS-MT), optionally showing both languages at once, and save
-  them as .srt or .vtt
+  them as .srt or .vtt (one language, or both in one file)
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
 - Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks

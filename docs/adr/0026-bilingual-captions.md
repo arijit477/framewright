@@ -27,12 +27,19 @@ grows both up and down.
   - Moving the original and adding the translation are one undo step.
 - **Two tracks, not one combined title:** each language stays a separate, editable caption track
   with its own .srt/.vtt export and its own word timings.
+- **Bilingual subtitle files** (added 2026-11-05):
+  - "Save both as .srt / .vtt" combines a caption track with another one (`combineCues`). It
+    defaults to the track whose timing overlaps most, which for a translation is its original.
+  - Each cue holds both languages: the track shown higher on screen first (for bilingual
+    captions, the original), then the other.
+  - Cues pair by time: a cue of the second track belongs to the first-track cue its middle falls
+    in. So pairing survives retiming or splitting a caption in one language, and a cue without a
+    partner is kept on its own.
 
 ## Consequences
 
 - Moving one language's captions afterwards no longer moves the other; the two tracks can be
   positioned independently (or the translation deleted to go back to one language).
-- A bilingual subtitle file (both languages per cue) isn't produced; each track exports alone.
 
 ## Alternatives considered
 

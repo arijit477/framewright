@@ -32,3 +32,34 @@ export function toVtt(captions: readonly CaptionCue[]): string {
   );
   return ['WEBVTT\n', ...cues].join('\n');
 }
+
+/**
+ * Two caption tracks as one, for bilingual subtitle files: each `first` cue
+ * keeps its time, with the text of the `second` cues whose middle falls within
+ * it on the lines below. (A translation made by Framewright has exactly the
+ * same times, so cues pair one to one.) A `second` cue that falls in no
+ * `first` cue becomes a cue of its own. In time order.
+ */
+export function combineCues(
+  first: readonly CaptionCue[],
+  second: readonly CaptionCue[],
+): CaptionCue[] {
+  const used = new Set<number>();
+  const combined = first.map((a) => {
+    const partners = second.flatMap((b, i) => {
+      const middle = (b.startUs + b.endUs) / 2;
+      if (used.has(i) || middle < a.startUs || middle >= a.endUs) return [];
+      used.add(i);
+      return [b.text];
+    });
+    return {
+      text: partners.length ? `${a.text}\n${partners.join(' ')}` : a.text,
+      startUs: a.startUs,
+      endUs: a.endUs,
+    };
+  });
+  second.forEach((b, i) => {
+    if (!used.has(i)) combined.push({ text: b.text, startUs: b.startUs, endUs: b.endUs });
+  });
+  return combined.sort((x, y) => x.startUs - y.startUs || x.endUs - y.endUs);
+}
