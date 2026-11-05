@@ -3,6 +3,8 @@ import { CAPTION_MODELS, type CaptionModel, type CaptionStage } from '../caption
 import {
   cancelCaptions,
   closeCaptions,
+  downloadMb,
+  FELL_BACK,
   setCaptionOptions,
   startCaptions,
   useCaptions,
@@ -68,7 +70,19 @@ export function CaptionsDialog() {
 }
 
 function CaptionsBody() {
-  const { phase, stage, fraction, error, model, language, highlight } = useCaptions();
+  const state = useCaptions();
+  const {
+    phase,
+    stage,
+    fraction,
+    error,
+    model,
+    language,
+    highlight,
+    gpuAvailable,
+    useGpu,
+    fellBack,
+  } = state;
   const running = phase === 'running';
   return (
     <form
@@ -95,9 +109,7 @@ function CaptionsBody() {
               onChange={() => setCaptionOptions({ model: key })}
             />
             {CAPTION_MODELS[key].label}{' '}
-            <span className="muted">
-              (about {CAPTION_MODELS[key].downloadMb} MB, downloaded once)
-            </span>
+            <span className="muted">(about {downloadMb(key, state)} MB, downloaded once)</span>
           </label>
         ))}
       </fieldset>
@@ -117,6 +129,19 @@ function CaptionsBody() {
           ))}
         </select>
       </label>
+
+      {gpuAvailable && (
+        <label className="radio">
+          <input
+            type="checkbox"
+            checked={useGpu}
+            disabled={running}
+            onChange={(e) => setCaptionOptions({ useGpu: e.target.checked })}
+          />
+          Use the graphics card{' '}
+          <span className="muted">(usually much faster; a larger download)</span>
+        </label>
+      )}
 
       <label className="radio">
         <input
@@ -140,6 +165,7 @@ function CaptionsBody() {
             <span>{Math.floor(fraction * 100)}%</span>
             <span className="muted">{STAGES[stage]}…</span>
           </p>
+          {fellBack && <p className="muted inspector-tip">{FELL_BACK}</p>}
         </div>
       )}
       {error && (
@@ -158,7 +184,7 @@ function CaptionsBody() {
             Close
           </button>
         )}
-        <button type="submit" className="primary" disabled={running}>
+        <button type="submit" className="primary" disabled={running || gpuAvailable === null}>
           Create captions
         </button>
       </div>

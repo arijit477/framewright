@@ -1,11 +1,19 @@
 import { create } from 'zustand';
 import { CaptionJob } from '../captions/client';
-import { CAPTION_MODELS, type CaptionModel, type CaptionStage } from '../captions/protocol';
+import {
+  CAPTION_MODELS,
+  type CaptionModel,
+  type CaptionStage,
+  type SpeechDevice,
+} from '../captions/protocol';
 import { captionsFromWords } from '../captions/segments';
 import { flushPendingEdits } from '../lib/pending-edits';
 import { addCaptions, notify, pause, projectForExport, selectClip, useEditor } from './editor';
 
 const MODEL_KEY = 'framewright.captionModel';
+export const FELL_BACK =
+  'The graphics card couldn’t run the speech model, so the processor was used (slower).';
+const GPU_KEY = 'framewright.captionUseGpu';
 
 export interface CaptionsState {
   open: boolean;
@@ -19,6 +27,20 @@ export interface CaptionsState {
   language: string | null;
   /** Colour each word as it's spoken. */
   highlight: boolean;
+  /** Whether this browser offers a graphics card (WebGPU); null until checked. */
+  gpuAvailable: boolean | null;
+  /** The user's choice to use it when it's there (remembered). */
+  useGpu: boolean;
+  /** This run moved to the processor because the graphics card failed. */
+  fellBack: boolean;
+}
+
+function loadUseGpu(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(GPU_KEY) !== 'false';
+  } catch {
+    return true;
+  }
 }
 
 function loadModel(): CaptionModel {
@@ -39,13 +61,40 @@ export const useCaptions = create<CaptionsState>(() => ({
   model: loadModel(),
   language: null,
   highlight: true,
+  gpuAvailable: null,
+  useGpu: loadUseGpu(),
+  fellBack: false,
 }));
+
+/** Where the next run goes: the graphics card if there is one and it's wanted. */
+export function speechDevice(state: CaptionsState = useCaptions.getState()): SpeechDevice {
+  return state.gpuAvailable && state.useGpu ? 'gpu' : 'cpu';
+}
+
+/** The download for the chosen model on the device the next run will use. */
+export function downloadMb(model: CaptionModel, state?: CaptionsState): number {
+  return CAPTION_MODELS[model].downloadMb[speechDevice(state)];
+}
 
 const set = useCaptions.setState;
 const get = useCaptions.getState;
 let job: CaptionJob | null = null;
 
-export const openCaptions = () => set({ open: true, phase: 'idle', error: null });
+export function openCaptions(): void {
+  set({ open: true, phase: 'idle', error: null });
+  if (get().gpuAvailable === null) void checkGpu();
+}
+
+/** Ask for a WebGPU adapter once; the answer doesn't change while the page is open. */
+async function checkGpu(): Promise<void> {
+  let available = false;
+  try {
+    available = !!(await navigator.gpu?.requestAdapter());
+  } catch {
+    // No WebGPU.
+  }
+  set({ gpuAvailable: available });
+}
 
 export function closeCaptions(): void {
   cancelCaptions();
@@ -56,8 +105,16 @@ export function setCaptionOptions(options: {
   model?: CaptionModel;
   language?: string | null;
   highlight?: boolean;
+  useGpu?: boolean;
 }) {
   set(options);
+  if (options.useGpu !== undefined) {
+    try {
+      globalThis.localStorage?.setItem(GPU_KEY, String(options.useGpu));
+    } catch {
+      // Not remembered; still used now.
+    }
+  }
   if (options.model) {
     try {
       globalThis.localStorage?.setItem(MODEL_KEY, options.model);
@@ -85,11 +142,16 @@ export function startCaptions(): void {
     return;
   }
   const { model, language } = get();
-  set({ phase: 'running', stage: 'audio', fraction: 0, error: null });
+  const device = speechDevice();
+  set({ phase: 'running', stage: 'audio', fraction: 0, error: null, fellBack: false });
   job = new CaptionJob(
-    { projectJson, assets, model, language },
+    { projectJson, assets, model, language, device },
     {
       onProgress: (stage, fraction) => set({ stage, fraction }),
+      onFallback: (reason) => {
+        console.warn('Captions: the graphics card failed, so the processor is used.', reason);
+        set({ fellBack: true, stage: 'audio', fraction: 0 });
+      },
       onDone: (words, duration) => {
         job = null;
         const captions = captionsFromWords(words, duration);
@@ -105,7 +167,8 @@ export function startCaptions(): void {
         set({ open: false, phase: 'idle' });
         notify(
           'info',
-          `Added ${captions.length} caption${captions.length === 1 ? '' : 's'} on a new track.`,
+          `Added ${captions.length} caption${captions.length === 1 ? '' : 's'} on a new track.` +
+            (get().fellBack ? ` ${FELL_BACK}` : ''),
         );
       },
       onError: (message) => {

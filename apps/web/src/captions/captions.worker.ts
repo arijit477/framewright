@@ -7,8 +7,9 @@
 import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 import type { InputAudioTrack } from 'mediabunny';
 // The ONNX Runtime engine ships with the app instead of coming from a CDN at run time.
-import ortMjs from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs?url';
-import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm?url';
+// The asyncify build holds both the processor and the WebGPU backends.
+import ortMjs from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url';
+import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 import { Mixer } from '../audio/mixer';
 import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
@@ -16,8 +17,10 @@ import { openAsset } from '../media/asset';
 import { blockBoundaries, isSilent } from './blocks';
 import {
   CAPTION_MODELS,
+  MODEL_FILES,
   SPEECH_SAMPLE_RATE,
   type FromCaptionsWorker,
+  type SpeechDevice,
   type ToCaptionsWorker,
 } from './protocol';
 import type { TimedText } from './segments';
@@ -33,18 +36,44 @@ self.onmessage = (event: MessageEvent<ToCaptionsWorker>) => {
   );
 };
 
-async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
+async function run({ projectJson, assets, model, language, device }: ToCaptionsWorker) {
   const engine = await TimelineEngine.fromJson(projectJson);
   const durationUs = engine.duration();
   const audio = await mixDown(engine, assets, durationUs);
+  if (device === 'gpu') {
+    try {
+      const words = await recognise(audio, model, language, 'gpu');
+      send({ type: 'done', words, durationUs, device: 'gpu' });
+      return;
+    } catch (error) {
+      // No adapter, an unsupported card, or the device lost mid-run: the
+      // processor gives the same captions, just more slowly. The client
+      // restarts the run in a fresh worker (this one's runtime may be unusable).
+      send({ type: 'fallback', reason: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+  }
+  const words = await recognise(audio, model, language, 'cpu');
+  send({ type: 'done', words, durationUs, device: 'cpu' });
+}
 
+/** Every word in `audio` (16 kHz mono) with its time in seconds. */
+async function recognise(
+  audio: Float32Array,
+  model: ToCaptionsWorker['model'],
+  language: string | null,
+  device: SpeechDevice,
+): Promise<TimedText[]> {
+  if (device === 'gpu' && !(await hasGpuAdapter())) {
+    throw new Error('This browser offers no graphics card for WebGPU.');
+  }
   const { repo, revision } = CAPTION_MODELS[model];
   // Each model file reports its own progress; overall progress is bytes over all files.
   const files = new Map<string, { loaded: number; total: number }>();
+  send({ type: 'progress', stage: 'model', fraction: 0 });
   const transcriber = (await pipeline('automatic-speech-recognition', repo, {
     revision,
-    dtype: 'q8',
-    device: 'wasm',
+    ...structuredClone(MODEL_FILES[device]),
     progress_callback: (info: {
       status: string;
       file?: string;
@@ -57,38 +86,50 @@ async function run({ projectJson, assets, model, language }: ToCaptionsWorker) {
       const fraction = all.reduce((n, f) => n + f.loaded, 0) / all.reduce((n, f) => n + f.total, 0);
       send({ type: 'progress', stage: 'model', fraction });
     },
-  })) as AutomaticSpeechRecognitionPipeline;
+  } as Parameters<typeof pipeline>[2])) as AutomaticSpeechRecognitionPipeline;
 
-  const words: TimedText[] = [];
-  const cuts = blockBoundaries(audio, SPEECH_SAMPLE_RATE);
-  send({ type: 'progress', stage: 'speech', fraction: 0 });
-  for (let b = 0; b + 1 < cuts.length; b++) {
-    const offset = cuts[b]! / SPEECH_SAMPLE_RATE;
-    const block = audio.subarray(cuts[b], cuts[b + 1]);
-    // Whisper invents words in silence, so silent blocks are skipped.
-    if (isSilent(block)) {
-      send({ type: 'progress', stage: 'speech', fraction: cuts[b + 1]! / audio.length });
-      continue;
-    }
-    const output = await transcriber(block, {
-      return_timestamps: 'word',
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      task: 'transcribe',
-      ...(language ? { language } : {}),
-    });
-    const result = Array.isArray(output) ? output[0]! : output;
-    for (const chunk of result.chunks ?? []) {
-      const [start, end] = chunk.timestamp;
-      words.push({
-        text: chunk.text,
-        start: (start ?? 0) + offset,
-        end: end === null || end === undefined ? null : end + offset,
+  try {
+    const words: TimedText[] = [];
+    const cuts = blockBoundaries(audio, SPEECH_SAMPLE_RATE);
+    send({ type: 'progress', stage: 'speech', fraction: 0 });
+    for (let b = 0; b + 1 < cuts.length; b++) {
+      const offset = cuts[b]! / SPEECH_SAMPLE_RATE;
+      const block = audio.subarray(cuts[b], cuts[b + 1]);
+      // Whisper invents words in silence, so silent blocks are skipped.
+      if (isSilent(block)) {
+        send({ type: 'progress', stage: 'speech', fraction: cuts[b + 1]! / audio.length });
+        continue;
+      }
+      const output = await transcriber(block, {
+        return_timestamps: 'word',
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        task: 'transcribe',
+        ...(language ? { language } : {}),
       });
+      const result = Array.isArray(output) ? output[0]! : output;
+      for (const chunk of result.chunks ?? []) {
+        const [start, end] = chunk.timestamp;
+        words.push({
+          text: chunk.text,
+          start: (start ?? 0) + offset,
+          end: end === null || end === undefined ? null : end + offset,
+        });
+      }
+      send({ type: 'progress', stage: 'speech', fraction: cuts[b + 1]! / audio.length });
     }
-    send({ type: 'progress', stage: 'speech', fraction: cuts[b + 1]! / audio.length });
+    return words;
+  } finally {
+    await transcriber.dispose().catch(() => {});
   }
-  send({ type: 'done', words, durationUs });
+}
+
+async function hasGpuAdapter(): Promise<boolean> {
+  try {
+    return !!(await navigator.gpu?.requestAdapter());
+  } catch {
+    return false;
+  }
 }
 
 /** The project's audible sound, as Whisper wants it: 16 kHz mono. */

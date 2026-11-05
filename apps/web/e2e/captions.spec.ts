@@ -79,6 +79,14 @@ test.describe('auto captions', () => {
     expect((await editor.tracks()).join()).not.toContain('text “');
   });
 
+  test('without a graphics card, runs on the processor with the smaller download', async () => {
+    await editor.importFixtures(FIXTURES.speech);
+    await editor.page.getByRole('button', { name: 'Captions' }).click();
+    await expect(dialog().getByRole('button', { name: 'Create captions' })).toBeEnabled();
+    await expect(dialog().getByLabel(/Use the graphics card/)).toHaveCount(0);
+    await expect(dialog().getByLabel(/^Fast/).locator('..')).toContainText('about 41 MB');
+  });
+
   test('explains when there is no sound to caption', async () => {
     await editor.importFixtures(FIXTURES.overlay); // a video without audio
     await run();
