@@ -761,6 +761,50 @@ export function duplicateSelected(): void {
   if (duplicated) set({ selectedClipIds: ids, selectedClipId: ids.at(-1) ?? null });
 }
 
+/**
+ * Cut silent stretches out of clips, closing each gap on the clip's track (a
+ * ripple delete), as one undo step. `silences` are [start, end) ranges in
+ * timeline µs per clip, as analysed. Returns how many were cut and how much
+ * time that saved, or null if nothing could be cut.
+ */
+export function removeSilences(
+  silences: readonly { clipId: number; ranges: readonly (readonly [number, number])[] }[],
+): { count: number; removedUs: number } | null {
+  const clips = new Map(get().timeline.tracks.flatMap((t) => t.clips.map((c) => [c.id, c])));
+  // Latest first: a ripple only moves what's to its right, so every cut still
+  // to come (earlier on its track) keeps the position it was analysed at.
+  const work = silences
+    .filter((s) => clips.has(s.clipId) && s.ranges.length > 0)
+    .sort((a, b) => clips.get(b.clipId)!.start - clips.get(a.clipId)!.start);
+  let count = 0;
+  let removedUs = 0;
+  const changed = edit((e) => {
+    for (const { clipId, ranges } of work) {
+      const clip = clips.get(clipId)!;
+      let end = clipEnd(clip); // where the clip's remaining left part ends
+      for (const [from, to] of [...ranges].sort((a, b) => b[0] - a[0])) {
+        // A cut within a hair of an edge goes to the edge (the engine keeps no sliver clips).
+        let start = Math.max(clip.start, Math.round(from));
+        let stop = Math.min(end, Math.round(to));
+        if (start - clip.start < MIN_CUT_US) start = clip.start;
+        if (end - stop < MIN_CUT_US) stop = end;
+        if (stop - start < MIN_CUT_US) continue;
+        if (stop < end) e.splitClip(clipId, stop);
+        const silent = start > clip.start ? e.splitClip(clipId, start) : clipId;
+        e.rippleDelete(silent);
+        count++;
+        removedUs += stop - start;
+        if (silent === clipId) break; // the clip started with silence: nothing is left before it
+        end = start;
+      }
+    }
+  });
+  return changed && count > 0 ? { count, removedUs } : null;
+}
+
+/** Cuts (and pieces) shorter than this aren't made: the engine's shortest clip. */
+const MIN_CUT_US = 10_000;
+
 /** Copy, then delete (Ctrl/⌘+X; ripples if ripple editing is on). */
 export function cutSelected(): void {
   if (copySelected()) deleteSelected();

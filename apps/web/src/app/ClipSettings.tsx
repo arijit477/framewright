@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MAX_VOLUME_PERCENT, type Clip } from '../engine/types';
 import { allSame } from '../lib/collections';
 import { setClipsSpeed, setClipsVolume, toggleMuteClips } from '../store/editor';
+import { clipsWithSound, openSilence } from '../store/silence';
 import { Slider } from './TransformInspector';
 
 /** Speeds offered in the menu (percent). Any 25–400 is valid in a project. */
@@ -43,6 +44,11 @@ export function ClipSettings({ clips }: { clips: readonly Clip[] }) {
       </label>
       {/* Remount when the clips or committed values change, so the draft resets. */}
       <Volume key={clips.map((c) => `${c.id}:${c.volumePercent}`).join()} clips={clips} />
+      {clipsWithSound(ids).length > 0 && (
+        <button type="button" onClick={() => openSilence(clipsWithSound(ids))}>
+          Remove silences…
+        </button>
+      )}
     </section>
   );
 }

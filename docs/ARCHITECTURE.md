@@ -277,6 +277,17 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Removing silences
+
+See [ADR 0028](./adr/0028-remove-silences.md).
+
+- **Worker (`silence/silence.worker.ts`):** plays each selected clip alone through the playback
+  `Mixer` at 16 kHz (volume and fades left out) and measures its loudness in 10 ms windows.
+- **Detection (`silence/detect.ts`):** pure functions: `loudness` and `silentRanges` (threshold,
+  minimum length, margin).
+- **Store (`store/silence.ts`) and edit (`removeSilences` in `store/editor.ts`):** split out each
+  silence and ripple-delete it, latest first, as one undo step.
+
 ## Auto captions
 
 See [ADR 0021](./adr/0021-auto-captions.md).
