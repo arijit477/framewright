@@ -277,6 +277,13 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Frame shapes
+
+See [ADR 0029](./adr/0029-frame-shapes.md). The timeline's `aspect` sets the frame's shape;
+`lib/aspect.ts` turns it into pixel sizes (`compositionSize` for the preview, `frameSize` for
+exports: the resolution is the short edge). The store sends the renderer a `resize` whenever
+the shape changes. Text sizes refer to the frame's short side.
+
 ## Removing silences
 
 See [ADR 0028](./adr/0028-remove-silences.md).

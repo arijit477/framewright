@@ -35,6 +35,8 @@ leaves your machine.
   rename them and remove unused ones
 - Speed: 0.25× to 4× per clip, with the sound's pitch preserved
 - Remove silences: cut the pauses out of the selected clips in one step (adjustable, undoable)
+- Frame shapes: 16:9, vertical 9:16, square 1:1 and 4:5, switchable at any time, with "Fill
+  frame" to cover the new shape
 - Ripple editing: delete, trim or change speed and the rest of the track moves up (or along)
 - Keyframes: animate a clip's transform (zooms, pans, moving picture-in-picture, fades) with
   easing; keyframes stay with the footage when you trim or split

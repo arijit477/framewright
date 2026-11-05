@@ -13,7 +13,8 @@ import { createCompositor, type Compositor } from './compositor';
 import { FrameReader } from './frame-reader';
 import type { Lut } from './lut';
 import { ReaderPool } from './reader-pool';
-import { COMPOSITION, type FromWorker, type ToWorker } from './protocol';
+import { compositionSize, DEFAULT_ASPECT } from '../lib/aspect';
+import type { FromWorker, ToWorker } from './protocol';
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
@@ -23,6 +24,9 @@ const scope = self as unknown as WorkerScope;
 const send = (message: FromWorker) => scope.postMessage(message);
 
 let compositor: Compositor | null = null;
+let canvas: OffscreenCanvas | null = null;
+/** Applied when the canvas arrives, if a resize comes first. */
+let size = compositionSize(DEFAULT_ASPECT);
 const videoTracks = new Map<string, InputVideoTrack>();
 /** One decoder per (asset, track), so the same file on two tracks doesn't thrash. */
 const readers = new ReaderPool((assetId) => {
@@ -51,6 +55,14 @@ scope.onmessage = (event) => {
       for (const { id, size, data } of message.luts) luts.set(id, { size, data });
       void drain(); // redraw with the new LUTs
       break;
+    case 'resize':
+      size = { width: message.width, height: message.height };
+      if (canvas) {
+        canvas.width = size.width;
+        canvas.height = size.height;
+      }
+      // The main thread asks for a fresh frame after resizing.
+      break;
     case 'render':
       pending = { requestId: message.requestId, layers: message.layers };
       void drain();
@@ -58,9 +70,10 @@ scope.onmessage = (event) => {
   }
 };
 
-async function init(canvas: OffscreenCanvas) {
-  canvas.width = COMPOSITION.width;
-  canvas.height = COMPOSITION.height;
+async function init(target: OffscreenCanvas) {
+  canvas = target;
+  canvas.width = size.width;
+  canvas.height = size.height;
   try {
     compositor = await createCompositor(canvas);
     send({ type: 'ready', backend: compositor.backend });

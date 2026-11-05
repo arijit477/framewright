@@ -1,4 +1,6 @@
 import type { AudioCodec, VideoCodec } from 'mediabunny';
+import type { AspectRatio } from '../engine/types';
+import { DEFAULT_ASPECT, frameSize } from '../lib/aspect';
 import { slugify } from '../lib/slug';
 
 /**
@@ -25,7 +27,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   quality: 'high',
 };
 
-/** 16:9 output sizes (aspect-ratio presets arrive in Phase 3). */
+/** 16:9 output sizes; other frame shapes keep the short edge (see `outputSize`). */
 export const RESOLUTIONS: Record<ExportResolution, { width: number; height: number }> = {
   '2160p': { width: 3840, height: 2160 },
   '1440p': { width: 2560, height: 1440 },
@@ -63,12 +65,16 @@ const AUDIO_BITRATES: Record<ExportQuality, number> = {
 const MIN_VIDEO_BITRATE = 500_000;
 const MAX_VIDEO_BITRATE = 80_000_000;
 
-export function outputSize(settings: ExportSettings) {
-  return RESOLUTIONS[settings.resolution];
+/** The export's frame size: the resolution's short edge, in the project's shape. */
+export function outputSize(settings: ExportSettings, aspect: AspectRatio = DEFAULT_ASPECT) {
+  return frameSize(aspect, RESOLUTIONS[settings.resolution].height);
 }
 
-export function videoBitrate(settings: ExportSettings): number {
-  const { width, height } = outputSize(settings);
+export function videoBitrate(
+  settings: ExportSettings,
+  aspect: AspectRatio = DEFAULT_ASPECT,
+): number {
+  const { width, height } = outputSize(settings, aspect);
   const bitrate = width * height * settings.fps * BITS_PER_PIXEL[settings.quality];
   return Math.round(Math.min(MAX_VIDEO_BITRATE, Math.max(MIN_VIDEO_BITRATE, bitrate)));
 }
@@ -87,8 +93,13 @@ export const frameTimeUs = (index: number, fps: number): number =>
   Math.round((index * 1_000_000) / fps);
 
 /** Rough output size, for the dialog. Real files vary with content. */
-export function estimateBytes(durationUs: number, settings: ExportSettings, hasAudio: boolean) {
-  const bitsPerSecond = videoBitrate(settings) + (hasAudio ? audioBitrate(settings) : 0);
+export function estimateBytes(
+  durationUs: number,
+  settings: ExportSettings,
+  hasAudio: boolean,
+  aspect: AspectRatio = DEFAULT_ASPECT,
+) {
+  const bitsPerSecond = videoBitrate(settings, aspect) + (hasAudio ? audioBitrate(settings) : 0);
   return Math.round(((durationUs / 1_000_000) * bitsPerSecond) / 8);
 }
 

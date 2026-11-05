@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'react';
 import {
   estimateBytes,
-  FORMATS,
-  formatBytes,
-  formatSeconds,
-  FRAME_RATES,
-  RESOLUTIONS,
   type ExportFormat,
   type ExportQuality,
   type ExportResolution,
+  formatBytes,
+  FORMATS,
+  formatSeconds,
+  FRAME_RATES,
+  outputSize,
+  RESOLUTIONS,
 } from '../export/settings';
+import { aspectOf, frameSize } from '../lib/aspect';
 import { useEditor } from '../store/editor';
 import {
   cancelExport,
@@ -69,7 +71,8 @@ function Settings({ state }: { state: ExportState }) {
   const hasAudio = useEditor((s) =>
     s.timeline.tracks.some((t) => t.clips.some((c) => !c.muted && s.assets[c.assetId]?.hasAudio)),
   );
-  const { width, height } = RESOLUTIONS[settings.resolution];
+  const aspect = useEditor((s) => aspectOf(s.timeline));
+  const { width, height } = outputSize(settings, aspect);
   const missing = useEditor((s) =>
     s.timeline.tracks.reduce(
       (n, t) => n + t.clips.filter((c) => s.assets[c.assetId]?.missing).length,
@@ -119,7 +122,8 @@ function Settings({ state }: { state: ExportState }) {
           >
             {(Object.keys(RESOLUTIONS) as ExportResolution[]).map((r) => (
               <option key={r} value={r}>
-                {r} ({RESOLUTIONS[r].width}×{RESOLUTIONS[r].height})
+                {r} ({frameSize(aspect, RESOLUTIONS[r].height).width}×
+                {frameSize(aspect, RESOLUTIONS[r].height).height})
               </option>
             ))}
           </select>
@@ -152,7 +156,7 @@ function Settings({ state }: { state: ExportState }) {
 
       <p className="muted export-summary">
         {width}×{height} · {formatSeconds(duration / 1_000_000)} · about{' '}
-        {formatBytes(estimateBytes(duration, settings, hasAudio))}
+        {formatBytes(estimateBytes(duration, settings, hasAudio, aspect))}
         {hasAudio ? '' : ' · no audio'}
       </p>
 

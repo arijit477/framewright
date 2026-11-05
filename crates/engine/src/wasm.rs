@@ -7,6 +7,7 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::aspect::AspectRatio;
 use crate::color::{ColorAdjust, LutRef};
 use crate::keyframe::Easing;
 use crate::text::{TextContent, TextStyle};
@@ -231,6 +232,14 @@ impl Engine {
         self.timeline
             .add_text_clip(track_id, to_micros(start), to_micros(duration), content)
             .map_err(err)
+    }
+
+    /// Set the frame's shape: `"16:9"`, `"9:16"`, `"1:1"` or `"4:5"`.
+    #[wasm_bindgen(js_name = setAspect)]
+    pub fn set_aspect(&mut self, aspect: JsValue) -> Result<(), JsError> {
+        let aspect: AspectRatio = serde_wasm_bindgen::from_value(aspect)?;
+        self.timeline.set_aspect(aspect);
+        Ok(())
     }
 
     #[wasm_bindgen(js_name = setClipText)]

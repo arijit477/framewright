@@ -8,6 +8,7 @@
 //! future desktop build (Tauri), so it must not depend on browser APIs outside
 //! [`wasm`].
 
+pub mod aspect;
 pub mod color;
 pub mod keyframe;
 pub mod text;

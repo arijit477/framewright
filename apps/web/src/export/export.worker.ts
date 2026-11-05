@@ -26,6 +26,7 @@ import {
 import { Mixer } from '../audio/mixer';
 import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
+import { aspectOf } from '../lib/aspect';
 import { openAsset } from '../media/asset';
 import { drawItems } from '../render/compose';
 import type { Lut } from '../render/lut';
@@ -114,11 +115,12 @@ async function run(
     }
 
     // Pick codecs this browser can actually encode at these settings.
-    const { width, height } = outputSize(settings);
+    const aspect = aspectOf(engine.snapshot());
+    const { width, height } = outputSize(settings, aspect);
     const videoCodec = await getFirstEncodableVideoCodec(VIDEO_CODECS[settings.format], {
       width,
       height,
-      bitrate: videoBitrate(settings),
+      bitrate: videoBitrate(settings, aspect),
       frameRate: settings.fps,
     });
     if (!videoCodec) {
@@ -158,7 +160,7 @@ async function run(
     const packetLimits = maximumPacketCounts(durationUs, settings.fps);
     const videoSource = new CanvasSource(canvas, {
       codec: videoCodec,
-      bitrate: videoBitrate(settings),
+      bitrate: videoBitrate(settings, aspect),
       keyFrameInterval: KEYFRAME_INTERVAL_S,
     });
     output.addVideoTrack(videoSource, {

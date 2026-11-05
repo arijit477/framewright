@@ -10,6 +10,8 @@
 //! - a clip never references media outside `0..source_duration`.
 
 use serde::{Deserialize, Serialize};
+
+use crate::aspect::AspectRatio;
 use thiserror::Error;
 
 use crate::color::{ColorAdjust, ColorError, LutRef};
@@ -316,6 +318,10 @@ pub enum EditError {
 pub struct Timeline {
     pub tracks: Vec<Track>,
     next_id: u32,
+    /// The frame's shape. Widescreen (the default) isn't saved, so older
+    /// projects load as they were and save unchanged.
+    #[serde(default, skip_serializing_if = "AspectRatio::is_default")]
+    pub aspect: AspectRatio,
 }
 
 impl Timeline {
@@ -326,6 +332,12 @@ impl Timeline {
     fn alloc_id(&mut self) -> u32 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// Change the frame's shape. Positions are relative to the frame, so the
+    /// layout carries over; only how media fits the new shape changes.
+    pub fn set_aspect(&mut self, aspect: AspectRatio) {
+        self.aspect = aspect;
     }
 
     /// Total length: the end of the last clip on any track.
@@ -2362,6 +2374,26 @@ mod tests {
             tl.insert_space(&[999], 0, S),
             Err(EditError::TrackNotFound(999))
         );
+    }
+
+    #[test]
+    fn aspect_ratio_is_saved_only_when_not_widescreen() {
+        let mut t = Timeline::new();
+        assert_eq!(t.aspect, AspectRatio::Widescreen);
+        assert!(
+            !t.to_json().contains("aspect"),
+            "older projects save unchanged"
+        );
+        t.set_aspect(AspectRatio::Vertical);
+        let json = t.to_json();
+        assert!(json.contains(r#""aspect":"9:16""#));
+        assert_eq!(
+            Timeline::from_json(&json).unwrap().aspect,
+            AspectRatio::Vertical
+        );
+        // A project saved before aspect ratios loads as widescreen.
+        let old = Timeline::from_json(r#"{"tracks":[],"nextId":0}"#).unwrap();
+        assert_eq!(old.aspect, AspectRatio::Widescreen);
     }
 
     #[test]

@@ -76,7 +76,9 @@ body,
 
 .preview {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   place-items: center;
+  gap: 8px;
   padding: 16px;
   min-height: 0;
 }

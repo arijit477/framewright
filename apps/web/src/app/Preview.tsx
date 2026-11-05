@@ -6,7 +6,7 @@ import {
   type Clip,
   type Transform,
 } from '../engine/types';
-import { COMPOSITION } from '../render/protocol';
+import { ASPECTS, aspectOf, compositionSize } from '../lib/aspect';
 import {
   beginGesture,
   cancelGesture,
@@ -15,6 +15,7 @@ import {
   previewDragTarget,
   renderer,
   requestFrame,
+  setAspect,
   selectClip,
   updateGesture,
   useEditor,
@@ -47,6 +48,8 @@ export function Preview() {
   const hasClips = useEditor((s) => s.duration > 0);
   const importing = useEditor((s) => s.importing > 0);
   const draggable = useEditor((s) => previewDragTarget(s) !== null);
+  const aspect = useEditor((s) => aspectOf(s.timeline));
+  const frame = compositionSize(aspect);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -131,7 +134,8 @@ export function Preview() {
     <div className="preview">
       <div
         className="preview-frame"
-        style={{ aspectRatio: `${COMPOSITION.width} / ${COMPOSITION.height}` }}
+        data-aspect={aspect}
+        style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
       >
         <canvas
           ref={canvasRef}
@@ -148,6 +152,19 @@ export function Preview() {
             {importing ? 'Importing…' : 'Import or drop a video to get started'}
           </div>
         )}
+      </div>
+      <div className="segmented frame-shapes" role="group" aria-label="Frame shape">
+        {ASPECTS.map((a) => (
+          <button
+            key={a.value}
+            aria-pressed={aspect === a.value}
+            className={aspect === a.value ? 'active' : ''}
+            title={a.hint}
+            onClick={() => setAspect(a.value)}
+          >
+            {a.label}
+          </button>
+        ))}
       </div>
     </div>
   );

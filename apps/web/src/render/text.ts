@@ -184,7 +184,8 @@ export function layoutText(
   measureWith: (font: string) => Measure,
 ): TextLayout {
   const { style } = content;
-  const fontPx = (style.size * height) / REFERENCE_HEIGHT;
+  // Sizes are for a 1080-pixel short side, so text looks the same in every frame shape.
+  const fontPx = (style.size * Math.min(width, height)) / REFERENCE_HEIGHT;
   const font = cssFont(style, fontPx);
   const measure = measureWith(font);
   const lines = wrapWords(content.text, width * MAX_WIDTH_FRACTION, measure).map((line) => ({
