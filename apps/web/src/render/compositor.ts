@@ -37,6 +37,11 @@ export type DrawItem =
       /** Applied before `color`; null for none. */
       lut: { lut: Lut; intensity: number } | null;
       effect: TransitionEffect;
+      /**
+       * Background removal: a mask (alpha = the person) stretched over the frame;
+       * null to draw the whole frame.
+       */
+      mask: ImageBitmap | null;
     }
   | {
       kind: 'text';
@@ -111,7 +116,7 @@ class Canvas2dCompositor implements Compositor {
         );
         continue;
       }
-      const { sample, transform, color, lut, effect } = item;
+      const { sample, transform, color, lut, effect, mask } = item;
       const opacity = (transform.opacityPercent / 100) * effect.opacity;
       const [revealFrom, revealTo] = effect.reveal;
       if (opacity === 0 || revealTo <= revealFrom) continue;
@@ -134,11 +139,11 @@ class Canvas2dCompositor implements Compositor {
       const filterByBrowser = this.canvasFilters && tone;
       if (filterByBrowser) this.ctx.filter = cssFilter(color); // reset by restore()
       const toneByHand = tone && !filterByBrowser ? color : null;
-      if (!lut && !hasWhiteBalance(color) && !toneByHand) {
+      if (!lut && !hasWhiteBalance(color) && !toneByHand && !mask) {
         sample.draw(this.ctx, 0, 0, 1, 1); // the unit square, mapped by the matrix
       } else {
         const gains = hasWhiteBalance(color) ? whiteBalanceGains(color) : null;
-        this.ctx.drawImage(this.processed(sample, gains, lut, toneByHand), 0, 0, 1, 1);
+        this.ctx.drawImage(this.processed(sample, gains, lut, toneByHand, mask), 0, 0, 1, 1);
       }
       this.ctx.restore();
     }
@@ -156,6 +161,7 @@ class Canvas2dCompositor implements Compositor {
     gains: [number, number, number] | null,
     lut: { lut: Lut; intensity: number } | null,
     color: ColorAdjust | null,
+    mask: ImageBitmap | null = null,
   ): OffscreenCanvas {
     const scale = Math.min(
       1,
@@ -168,12 +174,24 @@ class Canvas2dCompositor implements Compositor {
       this.scratch = new OffscreenCanvas(width, height);
     }
     const ctx = this.scratch.getContext('2d', { willReadFrequently: true })!;
+    ctx.clearRect(0, 0, width, height);
     sample.draw(ctx, 0, 0, width, height);
-    const pixels = ctx.getImageData(0, 0, width, height);
-    if (gains) whiteBalancePixels(pixels.data, gains);
-    if (lut) lutPixels(pixels.data, lut.lut, lut.intensity);
-    if (color) adjustPixels(pixels.data, color);
-    ctx.putImageData(pixels, 0, 0);
+    if (gains || lut || color) {
+      const pixels = ctx.getImageData(0, 0, width, height);
+      if (gains) whiteBalancePixels(pixels.data, gains);
+      if (lut) lutPixels(pixels.data, lut.lut, lut.intensity);
+      if (color) adjustPixels(pixels.data, color);
+      ctx.putImageData(pixels, 0, 0);
+    }
+    if (mask) {
+      // Keep only the person: the mask's alpha, stretched (smoothly) over the frame.
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(mask, 0, 0, width, height);
+      ctx.restore();
+    }
     return this.scratch;
   }
 }
@@ -191,6 +209,9 @@ struct Quad { m: vec4f, t: vec4f, c: vec4f, w: vec4f };
 // The layer's LUT (an identity LUT, at intensity 0, for layers without one).
 @group(0) @binding(3) var lut: texture_3d<f32>;
 @group(0) @binding(4) var lutSampler: sampler;
+// Background removal: the layer's mask (alpha = keep), stretched over the frame;
+// a 1×1 opaque texture for layers without one.
+@group(0) @binding(5) var mask: texture_2d<f32>;
 
 struct VsOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
 
@@ -225,9 +246,10 @@ fn graded(rgb: vec3f) -> vec3f {
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4f {
   let colour = textureSampleBaseClampToEdge(frame, frameSampler, in.uv);
+  let keep = textureSampleLevel(mask, lutSampler, in.uv, 0.0).a;
   // White balance, then the LUT, then brightness/contrast/saturation.
   let balanced = clamp(colour.rgb * quad.w.xyz, vec3f(0), vec3f(1));
-  return vec4f(adjust(graded(balanced)), colour.a * quad.t.z);
+  return vec4f(adjust(graded(balanced)), colour.a * keep * quad.t.z);
 }
 `;
 
@@ -252,10 +274,35 @@ class WebGpuCompositor implements Compositor {
     private readonly sampler: GPUSampler,
     private readonly uniforms: GPUBuffer[],
     private readonly identityLut: GPUTexture,
+    private readonly opaqueMask: GPUTexture,
   ) {}
 
   /** GPU copies of the LUTs in use, created on first use. */
   private readonly lutTextures = new Map<Lut, GPUTexture>();
+  /** One mask texture per layer slot (masks change every frame). */
+  private readonly maskTextures: (GPUTexture | null)[] = [];
+
+  private maskTexture(slot: number, mask: ImageBitmap): GPUTexture {
+    let texture = this.maskTextures[slot];
+    if (!texture || texture.width !== mask.width || texture.height !== mask.height) {
+      texture?.destroy();
+      texture = this.device.createTexture({
+        size: [mask.width, mask.height],
+        format: 'rgba8unorm',
+        usage:
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_DST |
+          GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.maskTextures[slot] = texture;
+    }
+    // Copied now (a snapshot), so the bitmap can be closed after draw().
+    this.device.queue.copyExternalImageToTexture({ source: mask }, { texture }, [
+      mask.width,
+      mask.height,
+    ]);
+    return texture;
+  }
 
   private lutTexture(lut: Lut): GPUTexture {
     let texture = this.lutTextures.get(lut);
@@ -309,7 +356,16 @@ class WebGpuCompositor implements Compositor {
     if (!context) return null;
     context.configure({ device, format, alphaMode: 'opaque' });
     const identity = createLutTexture(device, makeLut(2));
-    return new WebGpuCompositor(canvas, device, context, pipeline, sampler, uniforms, identity);
+    return new WebGpuCompositor(
+      canvas,
+      device,
+      context,
+      pipeline,
+      sampler,
+      uniforms,
+      identity,
+      opaqueMaskTexture(device),
+    );
   }
 
   /** Text is drawn here, then uploaded like a video frame (same, self-tested pipeline). */
@@ -381,6 +437,13 @@ class WebGpuCompositor implements Compositor {
           { binding: 2, resource: this.device.importExternalTexture({ source: videoFrame }) },
           { binding: 3, resource: lut.createView() },
           { binding: 4, resource: this.sampler },
+          {
+            binding: 5,
+            resource: (item.kind === 'video' && item.mask
+              ? this.maskTexture(i, item.mask)
+              : this.opaqueMask
+            ).createView(),
+          },
         ],
       });
       pass.setBindGroup(0, bindGroup);
@@ -453,9 +516,11 @@ async function selfTest(
   clear.getContext('2d')?.clearRect(0, 0, size, size);
   const transparent = new VideoFrame(clear, { timestamp: 0, alpha: 'keep' });
   let invert: GPUTexture | null = null;
+  let opaque: GPUTexture | null = null;
   try {
     device.pushErrorScope('validation');
     invert = createLutTexture(device, SELF_TEST_LUT);
+    opaque = opaqueMaskTexture(device);
     const target = device.createTexture({
       size: [size, size],
       format,
@@ -491,6 +556,7 @@ async function selfTest(
             { binding: 2, resource: device.importExternalTexture({ source: layer }) },
             { binding: 3, resource: invert.createView() },
             { binding: 4, resource: sampler },
+            { binding: 5, resource: opaque.createView() },
           ],
         }),
       );
@@ -514,7 +580,8 @@ async function selfTest(
     target.destroy();
     // Grey, so the channel order (rgba or bgra) doesn't matter.
     const expected = selfTestExpected() * 255;
-    return pixel.every((v) => Math.abs(v - expected) < 6);
+    if (!pixel.every((v) => Math.abs(v - expected) < 6)) return false;
+    return await maskSelfTest(device, pipeline, sampler, uniform, format);
   } catch (error) {
     console.warn('WebGPU self-test failed', error);
     return false;
@@ -522,6 +589,108 @@ async function selfTest(
     frame.close();
     transparent.close();
     invert?.destroy();
+    opaque?.destroy();
+  }
+}
+
+/**
+ * Background removal on the GPU: a white frame through a half-transparent
+ * mask, over black, must come out mid-grey (as Canvas 2D's destination-in
+ * gives). Run after the main self-test, in its own submission.
+ */
+async function maskSelfTest(
+  device: GPUDevice,
+  pipeline: GPURenderPipeline,
+  sampler: GPUSampler,
+  uniform: GPUBuffer,
+  format: GPUTextureFormat,
+): Promise<boolean> {
+  const size = 4;
+  const white = new OffscreenCanvas(size, size);
+  const ctx = white.getContext('2d');
+  if (!ctx) return false;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+  const frame = new VideoFrame(white, { timestamp: 0 });
+  const half = new OffscreenCanvas(size, size);
+  const hctx = half.getContext('2d');
+  if (!hctx) return false;
+  hctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  hctx.fillRect(0, 0, size, size);
+  const bitmap = await createImageBitmap(half);
+  const identity = createLutTexture(device, makeLut(2));
+  const mask = device.createTexture({
+    size: [size, size],
+    format: 'rgba8unorm',
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  const target = device.createTexture({
+    size: [size, size],
+    format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
+  const readback = device.createBuffer({
+    size: 256 * size,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  try {
+    device.pushErrorScope('validation');
+    device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: mask }, [size, size]);
+    device.queue.writeBuffer(
+      uniform,
+      0,
+      quadUniform(
+        layerMatrix(size, size, size, size, IDENTITY_TRANSFORM),
+        size,
+        size,
+        1,
+        NEUTRAL_COLOR,
+        0,
+      ),
+    );
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        { view: target.createView(), clearValue: [0, 0, 0, 1], loadOp: 'clear', storeOp: 'store' },
+      ],
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(
+      0,
+      device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: uniform } },
+          { binding: 1, resource: sampler },
+          { binding: 2, resource: device.importExternalTexture({ source: frame }) },
+          { binding: 3, resource: identity.createView() },
+          { binding: 4, resource: sampler },
+          { binding: 5, resource: mask.createView() },
+        ],
+      }),
+    );
+    pass.draw(4);
+    pass.end();
+    encoder.copyTextureToBuffer({ texture: target }, { buffer: readback, bytesPerRow: 256 }, [
+      size,
+      size,
+    ]);
+    device.queue.submit([encoder.finish()]);
+    if (await device.popErrorScope()) return false;
+    await readback.mapAsync(GPUMapMode.READ);
+    const pixel = [...new Uint8Array(readback.getMappedRange(), 0, 3)];
+    readback.unmap();
+    return pixel.every((v) => Math.abs(v - 128) < 8);
+  } finally {
+    frame.close();
+    bitmap.close();
+    identity.destroy();
+    mask.destroy();
+    target.destroy();
+    readback.destroy();
   }
 }
 
@@ -597,4 +766,15 @@ export function selfTestExpected(): number {
   const balanced = whiteBalanceRgb([1, 0, 0], whiteBalanceGains(SELF_TEST_COLOR));
   const graded = applyLutRgb(balanced, SELF_TEST_LUT, 1);
   return adjustRgb(graded, colorParams(SELF_TEST_COLOR))[0];
+}
+
+/** A 1×1 opaque mask: layers without background removal keep every pixel. */
+function opaqueMaskTexture(device: GPUDevice): GPUTexture {
+  const texture = device.createTexture({
+    size: [1, 1],
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  device.queue.writeTexture({ texture }, new Uint8Array([255, 255, 255, 255]), {}, [1, 1]);
+  return texture;
 }

@@ -192,7 +192,12 @@ async function run(
 
       // Video: resolve the layers, decode, composite, encode.
       const layers = engine.resolve(frameTimeUs(i, settings.fps));
-      compositor.draw(await drawItems(layers, readers, luts));
+      const items = await drawItems(layers, readers, luts, (message) => {
+        // An export must show what was asked for: fail rather than keep the background.
+        throw new Error(`Background removal isn’t available: ${message}`);
+      });
+      compositor.draw(items);
+      for (const item of items) if (item.kind === 'video') item.mask?.close();
       await videoSource.add(i / settings.fps, 1 / settings.fps);
 
       // Audio: keep it level with the video so the muxer can interleave.

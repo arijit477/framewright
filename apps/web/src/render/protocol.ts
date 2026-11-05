@@ -38,4 +38,6 @@ export type FromWorker =
   | { type: 'assetReady'; asset: AssetInfo }
   | { type: 'assetError'; id: string; message: string }
   | { type: 'rendered'; requestId: number; ms: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** Something the user should know, but the preview carries on (e.g. background removal is unavailable). */
+  | { type: 'notice'; message: string };

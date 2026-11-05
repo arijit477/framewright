@@ -94,6 +94,14 @@ export default function globalSetup() {
       '-filter_complex [1:v]scale=240:300[p];[0:v][p]overlay=x=80+146.667*t:y=210:shortest=1 ' +
       '-t 6 -c:v libvpx-vp9 -b:v 1M -deadline realtime',
   );
+  // 4 s, 1280x720 green, with the portrait filling the height (576x720, x 352-928),
+  // drifting 40 px right: a "talking head", as background removal is meant for.
+  make(
+    FIXTURES.talkingHead,
+    `-f lavfi -i color=c=green:size=1280x720:rate=30:duration=4 -loop 1 -i ${fixture(FIXTURES.portrait)} ` +
+      '-filter_complex [1:v]scale=576:720[p];[0:v][p]overlay=x=352+10*t:y=0:shortest=1 ' +
+      '-t 4 -c:v libvpx-vp9 -b:v 1M -deadline realtime',
+  );
   // 4 s of silence (with an audio track): Whisper must not invent words for it.
   make(FIXTURES.silence, '-f lavfi -i anullsrc=r=16000:cl=mono -t 4');
   // 4 s, 22.05 kHz stereo WAV (exercises resampling), peak ≈ -27 dBFS.

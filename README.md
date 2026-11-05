@@ -38,6 +38,8 @@ leaves your machine.
 - Frame shapes: 16:9, vertical 9:16, square 1:1 and 4:5, switchable at any time, with "Fill
   frame" to cover the new shape, or "Fill and follow faces" to keep the speaker in frame
   automatically
+- Remove background: cut a person out of their video, live in the preview and the export, on
+  the device
 - Ripple editing: delete, trim or change speed and the rest of the track moves up (or along)
 - Keyframes: animate a clip's transform (zooms, pans, moving picture-in-picture, fades) with
   easing; keyframes stay with the footage when you trim or split
