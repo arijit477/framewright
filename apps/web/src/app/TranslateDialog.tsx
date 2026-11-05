@@ -48,7 +48,7 @@ export function TranslateDialog() {
 }
 
 function TranslateBody() {
-  const { phase, stage, fraction, step, steps, error, from, to } = useTranslation();
+  const { phase, stage, fraction, step, steps, error, from, to, bilingual } = useTranslation();
   const running = phase === 'running';
   const route = translationRoute(from, to);
   return (
@@ -95,6 +95,16 @@ function TranslateBody() {
           </select>
         </label>
       </div>
+
+      <label className="radio">
+        <input
+          type="checkbox"
+          checked={bilingual}
+          disabled={running}
+          onChange={(e) => setTranslationLanguages({ bilingual: e.target.checked })}
+        />
+        Show both languages <span className="muted">(the translation under the original)</span>
+      </label>
 
       {route && (
         <p className="muted inspector-tip" data-testid="translation-route">

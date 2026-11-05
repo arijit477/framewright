@@ -139,7 +139,11 @@ export interface TextStyle {
   animationMs: number;
   /** `#rrggbb` for the word being spoken (needs `words`); absent for none. */
   highlight?: string;
+  /** Which part of the block sits at `y`; absent = middle (it grows both ways). */
+  anchorY?: VerticalAnchor;
 }
+
+export type VerticalAnchor = 'middle' | 'top' | 'bottom';
 
 /** When a word is spoken, in the text clip's source time (mirrors `WordTiming`). */
 export interface WordTiming {

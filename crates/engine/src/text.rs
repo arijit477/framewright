@@ -44,6 +44,25 @@ pub enum TextAnimation {
     Pop,
 }
 
+/// Which part of a text block sits at its `y` position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VerticalAnchor {
+    /// The block's middle: it grows up and down as lines are added.
+    #[default]
+    Middle,
+    /// The block's top edge: it grows downwards.
+    Top,
+    /// The block's bottom edge: it grows upwards.
+    Bottom,
+}
+
+impl VerticalAnchor {
+    fn is_middle(&self) -> bool {
+        *self == VerticalAnchor::Middle
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TextStyle {
@@ -58,9 +77,14 @@ pub struct TextStyle {
     pub italic: bool,
     pub align: TextAlign,
     /// Anchor point in thousandths of the frame: `x` is the left, centre or right
-    /// edge of the text (per `align`), `y` the vertical centre of the block.
+    /// edge of the text (per `align`), `y` the middle, top or bottom of the block
+    /// (per `anchor_y`).
     pub x: u16,
     pub y: u16,
+    /// Stacked captions (e.g. two languages) anchor to the edge they share, so
+    /// neither can grow into the other. Middle (the default) is not saved.
+    #[serde(skip_serializing_if = "VerticalAnchor::is_middle")]
+    pub anchor_y: VerticalAnchor,
     pub animation_in: TextAnimation,
     pub animation_out: TextAnimation,
     /// Length of each animation.
@@ -83,6 +107,7 @@ impl Default for TextStyle {
             align: TextAlign::Center,
             x: 500,
             y: 820,
+            anchor_y: VerticalAnchor::Middle,
             animation_in: TextAnimation::Fade,
             animation_out: TextAnimation::Fade,
             animation_ms: 400,
@@ -300,7 +325,22 @@ mod tests {
         };
         let json = serde_json::to_string(&content).unwrap();
         assert!(!json.contains("words") && !json.contains("highlight"));
+        assert!(!json.contains("anchorY"), "the default anchor isn't saved");
         let back: TextContent = serde_json::from_str(r#"{"text":"Hi"}"#).unwrap();
         assert_eq!(back, content);
+    }
+
+    #[test]
+    fn vertical_anchor_round_trips() {
+        let mut content = TextContent {
+            text: "Hola".into(),
+            style: TextStyle::default(),
+            words: vec![],
+        };
+        content.style.anchor_y = VerticalAnchor::Bottom;
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.contains(r#""anchorY":"bottom""#));
+        let back: TextContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.style.anchor_y, VerticalAnchor::Bottom);
     }
 }

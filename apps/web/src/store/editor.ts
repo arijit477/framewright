@@ -11,6 +11,7 @@ import {
   type LutRef,
   type Micros,
   type TextContent,
+  type TextStyle,
   type TimelineSnapshot,
   type TrackKind,
   type Transform,
@@ -24,6 +25,7 @@ import {
   sourceTimeAt,
   timelineTimeOf,
 } from '../lib/keyframes';
+import { bilingualStyles } from '../captions/bilingual';
 import { wrapLines, type Caption } from '../captions/segments';
 import type { CaptionCue } from '../captions/srt';
 import { cleanLutName, lutUsage } from '../lib/luts';
@@ -989,11 +991,14 @@ export function addCaptions(
  * Add a translation of a caption track as a new top track, in one undo step:
  * each title keeps its time and style, with `texts[i]` (in the track's time
  * order) as its text. Word timings belong to the original words, so the
- * translation has none (and no word highlight). Returns the new track's id.
+ * translation has none (and no word highlight). With `bilingual`, the original
+ * captions move up to make room and the translation shows under them
+ * (`bilingualStyles`), in the same undo step. Returns the new track's id.
  */
 export function addTranslatedCaptions(
   sourceTrackId: number,
   texts: readonly string[],
+  { bilingual = false }: { bilingual?: boolean } = {},
 ): number | null {
   const source = captionClips(sourceTrackId);
   if (source.length !== texts.length) return null;
@@ -1001,12 +1006,16 @@ export function addTranslatedCaptions(
   const added = edit((e) => {
     trackId = e.addTrack('video');
     source.forEach((clip, i) => {
-      const { highlight: _, ...style } = clip.text!.style;
-      const text = texts[i]!.trim() || clip.text!.text; // never an empty title
-      e.addTextClip(trackId!, clip.start, clip.duration, {
-        text: wrapLines(text),
-        style,
-      });
+      const content = clip.text!;
+      const { highlight: _, ...plain } = content.style;
+      let style: TextStyle = plain;
+      if (bilingual) {
+        const styles = bilingualStyles(content.style);
+        e.setClipText(clip.id, { ...content, style: styles.original });
+        style = styles.translation;
+      }
+      const text = texts[i]!.trim() || content.text; // never an empty title
+      e.addTextClip(trackId!, clip.start, clip.duration, { text: wrapLines(text), style });
     });
   });
   return added ? trackId : null;

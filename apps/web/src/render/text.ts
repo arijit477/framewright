@@ -15,7 +15,7 @@ export const MAX_WIDTH_FRACTION = 0.9;
 const LINE_HEIGHT = 1.2;
 /** Background box padding, in ems. */
 const BOX_PADDING_X = 0.4;
-const BOX_PADDING_Y = 0.15;
+export const BOX_PADDING_Y = 0.15;
 
 /**
  * Generic font stacks. Exports must render with fonts available inside
@@ -201,7 +201,13 @@ export function layoutText(
       : style.align === 'right'
         ? anchorX - blockWidth
         : anchorX - blockWidth / 2;
-  const top = (style.y / 1000) * height - blockHeight / 2;
+  const anchorY = (style.y / 1000) * height;
+  const top =
+    style.anchorY === 'top'
+      ? anchorY
+      : style.anchorY === 'bottom'
+        ? anchorY - blockHeight
+        : anchorY - blockHeight / 2;
   return {
     font,
     fontPx,

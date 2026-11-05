@@ -25,7 +25,8 @@ leaves your machine.
 - Auto captions: speech becomes editable captions on their own track, recognised **on your
   device** by OpenAI's Whisper, on the graphics card when there is one (the model downloads once,
   about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Translate them into
-  other languages on the device (OPUS-MT), and save them as .srt or .vtt
+  other languages on the device (OPUS-MT), optionally showing both languages at once, and save
+  them as .srt or .vtt
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
   presets, and dragging clips or titles directly on the preview
 - Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks
