@@ -5,7 +5,8 @@ import { FIXTURES } from './media';
 
 /**
  * Caption translation with OPUS-MT on the device: captions from jfk.wav
- * ("…ask not what your country can do for you…") translated into Spanish, then
+ * ("…ask not what your | country can do for you…", one sentence over two
+ * captions) translated into Spanish, then
  * the Spanish into Hindi (no direct model: through English).
  */
 test.describe('caption translation', () => {
@@ -35,6 +36,9 @@ test.describe('caption translation', () => {
   };
   /** Each caption's time range on a track ("from 00:00:20 to 00:06:12"). */
   const times = (track: string) => [...track.matchAll(/from \S+ to \S+/g)].map((m) => m[0]);
+  /** A track's caption texts joined into one, as read in order. */
+  const reading = (track: string) =>
+    [...track.matchAll(/text “([^”]*)”/g)].map((m) => m[1]!.replace(/\s+/g, ' ')).join(' ');
 
   test('adds a translated copy of a caption track at the same times', async () => {
     const english = (await editor.tracks())[0]!;
@@ -51,6 +55,9 @@ test.describe('caption translation', () => {
     expect(times(spanish!)).toEqual(times(english));
     expect(spanish!.toLowerCase()).toMatch(/país/);
     expect(spanish).not.toMatch(/country/i);
+    // The sentence split over two captions ("…what your | country can do for you…")
+    // is translated whole, so its grammar survives the split.
+    expect(reading(spanish!)).toContain('qué puede hacer su país por usted');
 
     await editor.press('Control+z');
     expect((await editor.tracks())[0]).toBe(english);
