@@ -79,7 +79,8 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Bilingual captions (the translation under the original, never overlapping), and bilingual .srt/.vtt files
 - [x] Faster translation (measured; it stays on the processor, see ADR 0027)
 - [x] Silence detection and one-click removal (selected clips; adjustable threshold, length and margin)
-- [ ] Aspect-ratio presets (9:16, 1:1, 16:9) with smart reframing
+- [x] Aspect-ratio presets (16:9, 9:16, 1:1, 4:5), with "Fill frame" to cover a new shape
+- [ ] Smart reframing (keep the subject in frame when the shape changes)
 - [ ] Background removal (segmentation model, permissive licence only)
 - [ ] Templates
 

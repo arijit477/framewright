@@ -107,6 +107,12 @@ describe('layoutText', () => {
     expect(layout(content('Hello', { align: 'right', x: 900 })).left).toBe(1728 - 50);
   });
 
+  it('sizes text by the frame’s short side, so it looks the same in every shape', () => {
+    const wide = layout(content('A', { size: 72 }), 1920, 1080).fontPx;
+    expect(layout(content('A', { size: 72 }), 1080, 1920).fontPx).toBe(wide);
+    expect(layout(content('A', { size: 72 }), 1080, 1080).fontPx).toBe(wide);
+  });
+
   it('scales the font with the frame, so exports at any size match', () => {
     expect(layout(content('A', { size: 72 }), 1920, 1080).fontPx).toBe(72);
     expect(layout(content('A', { size: 72 }), 1280, 720).fontPx).toBe(48);

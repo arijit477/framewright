@@ -4,6 +4,7 @@ import { TimelineEngine } from '../engine/engine';
 import {
   clipEnd,
   IDENTITY_TRANSFORM,
+  type AspectRatio,
   type Clip,
   type ColorAdjust,
   type CopiedClip,
@@ -28,6 +29,7 @@ import {
 import { bilingualStyles } from '../captions/bilingual';
 import { wrapLines, type Caption } from '../captions/segments';
 import { combineCues, type CaptionCue } from '../captions/srt';
+import { aspectOf, compositionSize } from '../lib/aspect';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
 import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
@@ -163,11 +165,20 @@ function requireEngine(): TimelineEngine {
 }
 
 /** Push the engine's state into the store, the preview and the audio mixer. */
+/** The frame size last sent to the renderer. */
+let renderedAspect: AspectRatio | null = null;
+
 function refresh() {
   const e = requireEngine();
   const duration = e.duration();
+  const timeline = e.snapshot();
+  const aspect = aspectOf(timeline);
+  if (aspect !== renderedAspect) {
+    renderedAspect = aspect;
+    renderer.resize(compositionSize(aspect)); // before the frame below is drawn
+  }
   set((s) => ({
-    timeline: e.snapshot(),
+    timeline,
     duration,
     playhead: Math.min(s.playhead, duration),
     canUndo: undoStack.length > 0,
@@ -1118,6 +1129,12 @@ export function trackCaptions(trackId: number): CaptionCue[] {
     startUs: c.start,
     endUs: clipEnd(c),
   }));
+}
+
+/** Change the frame's shape (one undo step). Positions are relative, so the layout carries over. */
+export function setAspect(aspect: AspectRatio): boolean {
+  if (aspectOf(get().timeline) === aspect) return true;
+  return edit((e) => e.setAspect(aspect));
 }
 
 /**

@@ -1,8 +1,5 @@
 import type { Layer } from '../engine/types';
 
-/** Output resolution of the composition (Phase 3 adds aspect-ratio presets). */
-export const COMPOSITION = { width: 1920, height: 1080 } as const;
-
 export interface AssetInfo {
   id: string;
   name: string;
@@ -31,6 +28,8 @@ export type ToWorker =
   | { type: 'clearAssets' }
   /** Replace the project's LUTs. */
   | { type: 'setLuts'; luts: LutData[] }
+  /** The project's frame shape changed: draw at this size from now on. */
+  | { type: 'resize'; width: number; height: number }
   | { type: 'render'; requestId: number; layers: Layer[] };
 
 /** Render worker -> main thread. */

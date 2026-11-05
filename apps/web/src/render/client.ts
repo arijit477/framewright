@@ -38,6 +38,11 @@ export class RenderClient {
     this.post({ type: 'setLuts', luts });
   }
 
+  /** Draw at a new size (the project's frame shape changed). */
+  resize(size: { width: number; height: number }): void {
+    this.post({ type: 'resize', ...size });
+  }
+
   /** Release every decoder (e.g. when another project is opened). */
   clearAssets(): void {
     this.post({ type: 'clearAssets' });

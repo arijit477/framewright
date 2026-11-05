@@ -174,7 +174,12 @@ export interface Track {
 
 export interface TimelineSnapshot {
   tracks: Track[];
+  /** The frame's shape; absent = '16:9'. */
+  aspect?: AspectRatio;
 }
+
+/** Mirrors crates/engine/src/aspect.rs. */
+export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5';
 
 /** One clip visible at a moment in time; higher trackIndex draws on top. */
 export interface Layer {

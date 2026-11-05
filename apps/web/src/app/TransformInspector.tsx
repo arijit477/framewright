@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { IDENTITY_TRANSFORM, type Clip, type Transform } from '../engine/types';
+import { aspectOf, fillScalePercent } from '../lib/aspect';
 import { Debouncer } from '../lib/debouncer';
 import { roundTransform } from '../lib/keyframes';
 import { registerPendingEdits } from '../lib/pending-edits';
@@ -26,6 +27,13 @@ const PIP_PRESETS = [
  */
 export function TransformInspector({ clip }: { clip: Clip }) {
   const animated = (clip.keyframes?.length ?? 0) > 0;
+  // The scale at which this clip covers the frame (100 when its shape matches).
+  const fill = useEditor((s) => {
+    const asset = s.assets[clip.assetId];
+    return asset?.hasVideo
+      ? fillScalePercent(asset.width, asset.height, aspectOf(s.timeline))
+      : 100;
+  });
   // Only follow the playhead when it matters, so playback doesn't re-render the panel otherwise.
   const playhead = useEditor((s) => (animated ? s.playhead : 0));
   const saved = animated
@@ -135,6 +143,16 @@ export function TransformInspector({ clip }: { clip: Clip }) {
 
         <TransitionField clip={clip} />
 
+        {fill !== 100 && (
+          <button
+            onClick={() =>
+              change({ x: 500, y: 500, scalePercent: fill, rotationDeg: 0 }, { now: true })
+            }
+            title="Scale the clip up until it covers the frame, cropping its edges"
+          >
+            Fill frame
+          </button>
+        )}
         <button
           onClick={() => {
             debouncer.cancel();

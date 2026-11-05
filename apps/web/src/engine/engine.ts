@@ -1,5 +1,6 @@
 import init, { Engine } from '@framewright/engine';
 import type {
+  AspectRatio,
   AudioSegment,
   ColorAdjust,
   CopiedClip,
@@ -77,6 +78,10 @@ export class TimelineEngine {
   /** Trim keeping the clip's start in place; later clips on the track follow its end. */
   trimClipRipple(clipId: number, edge: 'start' | 'end', at: number): void {
     this.inner.trimClipRipple(clipId, edge, at);
+  }
+
+  setAspect(aspect: AspectRatio): void {
+    this.inner.setAspect(aspect);
   }
 
   splitClip(clipId: number, at: number): number {
