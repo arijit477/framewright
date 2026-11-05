@@ -68,7 +68,7 @@ export function CaptionsDialog() {
 }
 
 function CaptionsBody() {
-  const { phase, stage, fraction, error, model, language } = useCaptions();
+  const { phase, stage, fraction, error, model, language, highlight } = useCaptions();
   const running = phase === 'running';
   return (
     <form
@@ -116,6 +116,16 @@ function CaptionsBody() {
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="radio">
+        <input
+          type="checkbox"
+          checked={highlight}
+          disabled={running}
+          onChange={(e) => setCaptionOptions({ highlight: e.target.checked })}
+        />
+        Highlight each word as it’s spoken
       </label>
 
       <p className="muted inspector-tip">

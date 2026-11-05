@@ -1,5 +1,8 @@
 import type { Caption } from './segments';
 
+/** What a captions file needs: the text and when it shows. */
+export type CaptionCue = Pick<Caption, 'text' | 'startUs' | 'endUs'>;
+
 const pad = (n: number, width = 2) => String(n).padStart(width, '0');
 
 /** `HH:MM:SS,mmm` (SRT) or `HH:MM:SS.mmm` (WebVTT). */
@@ -12,7 +15,7 @@ export function formatCaptionTime(us: number, separator: ',' | '.'): string {
 }
 
 /** SubRip (.srt): numbered cues, the format most players and platforms accept. */
-export function toSrt(captions: readonly Caption[]): string {
+export function toSrt(captions: readonly CaptionCue[]): string {
   return captions
     .map(
       (c, i) =>
@@ -22,7 +25,7 @@ export function toSrt(captions: readonly Caption[]): string {
 }
 
 /** WebVTT (.vtt): the format the web's <track> element uses. */
-export function toVtt(captions: readonly Caption[]): string {
+export function toVtt(captions: readonly CaptionCue[]): string {
   const cues = captions.map(
     (c) =>
       `${formatCaptionTime(c.startUs, '.')} --> ${formatCaptionTime(c.endUs, '.')}\n${c.text}\n`,

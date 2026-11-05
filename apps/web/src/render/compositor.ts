@@ -38,7 +38,14 @@ export type DrawItem =
       lut: { lut: Lut; intensity: number } | null;
       effect: TransitionEffect;
     }
-  | { kind: 'text'; content: TextContent; clipTime: number; clipDuration: number };
+  | {
+      kind: 'text';
+      content: TextContent;
+      clipTime: number;
+      clipDuration: number;
+      /** The clip's source time: where its word timings are (captions). */
+      sourceTime: number;
+    };
 
 export interface Compositor {
   readonly backend: RendererBackend;
@@ -93,7 +100,15 @@ class Canvas2dCompositor implements Compositor {
     this.ctx.fillRect(0, 0, width, height);
     for (const item of items) {
       if (item.kind === 'text') {
-        drawText(this.ctx, item.content, item.clipTime, item.clipDuration, width, height);
+        drawText(
+          this.ctx,
+          item.content,
+          item.clipTime,
+          item.clipDuration,
+          width,
+          height,
+          item.sourceTime,
+        );
         continue;
       }
       const { sample, transform, color, lut, effect } = item;
@@ -400,7 +415,7 @@ class WebGpuCompositor implements Compositor {
     const ctx = this.textCanvas.getContext('2d');
     if (!ctx) return null;
     ctx.clearRect(0, 0, width, height);
-    drawText(ctx, item.content, item.clipTime, item.clipDuration, width, height);
+    drawText(ctx, item.content, item.clipTime, item.clipDuration, width, height, item.sourceTime);
     // The VideoFrame copies the pixels, so the canvas can be reused for the next layer.
     return new VideoFrame(this.textCanvas, { timestamp: 0, alpha: 'keep' });
   }

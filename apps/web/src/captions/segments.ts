@@ -1,14 +1,15 @@
 /**
- * Turn speech-recognition output into captions people can read.
+ * Turn word-timed speech recognition into captions people can read.
  *
- * Whisper gives timed phrases (seconds). Captions need to be short (at most
- * two lines of ~42 characters, a common subtitle guideline), on screen long
- * enough to read, never overlapping, and inside the timeline. Long phrases
- * are split at word boundaries (preferring sentence ends), with the phrase's
- * time shared out by length; sound tags like "[Music]" are dropped.
+ * Whisper gives each word with its time (seconds). Captions are built from
+ * those words: at most two lines of ~42 characters (a common subtitle
+ * guideline) and 6 seconds, starting afresh after a pause or at a sentence
+ * end, never overlapping, inside the timeline, and on screen long enough to
+ * read. Each caption keeps its words' timings, relative to its own start, for
+ * word-by-word highlighting. Sound tags like "[Music]" are dropped.
  */
 
-/** A phrase as the recogniser reports it; `end` may be missing for the last one. */
+/** A recognised word; `end` may be missing (the last word of a block). */
 export interface TimedText {
   text: string;
   start: number;
@@ -20,76 +21,60 @@ export interface Caption {
   text: string;
   startUs: number;
   endUs: number;
+  /** One per whitespace-separated word of `text`, relative to `startUs`. */
+  words: { start: number; end: number }[];
 }
 
 export const CAPTION_LIMITS = {
   lineChars: 42,
   lines: 2,
+  maxDurationUs: 6_000_000,
   /** Shorter captions are stretched (into silence only) so they can be read. */
   minDurationUs: 700_000,
-  /** Longer ones are split, so text keeps up with the speech. */
-  maxDurationUs: 6_000_000,
-  /** Reading speed used when the recogniser gives no end time. */
-  charsPerSecond: 15,
+  /** A pause this long starts a new caption. */
+  pauseUs: 1_000_000,
+  /** How long a caption stays up after its last word, if nothing follows. */
+  holdUs: 500_000,
 } as const;
 
 const US = 1_000_000;
 
-/** Remove sound tags ("[Music]", "(laughs)") and tidy spacing. */
-export function cleanText(text: string): string {
-  return text
-    .replace(/\[[^\]]*\]|\([^)]*\)|♪/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+interface Word {
+  text: string;
+  startUs: number;
+  endUs: number;
 }
 
-/** Split text into pieces that fit one caption, at word boundaries, preferring sentence ends. */
-export function splitText(
-  text: string,
-  maxChars = CAPTION_LIMITS.lineChars * CAPTION_LIMITS.lines,
-): string[] {
-  const pieces: string[] = [];
-  let current = '';
-  for (const word of text.split(' ')) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length > maxChars && current) {
-      pieces.push(current);
-      current = word;
-    } else {
-      current = next;
+/**
+ * Clean recognised words: drop sound tags ("[Music]", "(upbeat music)" even
+ * when split over several words, "♪"), trim, split any word holding a space,
+ * and fill missing end times from the next word.
+ */
+export function cleanWords(words: readonly TimedText[]): Word[] {
+  const result: Word[] = [];
+  let depth = 0; // inside [...] or (...)
+  words.forEach((word, i) => {
+    let text = '';
+    for (const char of word.text) {
+      if (char === '[' || char === '(') depth++;
+      else if ((char === ']' || char === ')') && depth > 0) depth--;
+      else if (depth === 0 && char !== '♪') text += char;
     }
-    // A sentence ends here and the caption already has some substance: start a new one.
-    if (/[.!?]$/.test(current) && current.length >= maxChars / 3) {
-      pieces.push(current);
-      current = '';
-    }
-  }
-  if (current) pieces.push(current);
-  return pieces;
-}
-
-/** Split text at word boundaries into `count` pieces of about equal length. */
-export function splitEvenly(text: string, count: number): string[] {
-  const words = text.split(' ');
-  const pieces = Math.min(count, words.length);
-  // Where each word ends, in characters; cut at the word end nearest each 1/n of the text.
-  const ends: number[] = [];
-  let at = 0;
-  for (const word of words) ends.push((at += word.length + 1));
-  const cuts: number[] = [];
-  for (let k = 1; k < pieces; k++) {
-    const goal = (text.length * k) / pieces;
-    const earliest = (cuts.at(-1) ?? 0) + 1; // every piece keeps at least one word
-    const latest = words.length - (pieces - k); // ...and leaves enough for the rest
-    let best = earliest;
-    for (let w = earliest; w <= latest; w++) {
-      if (Math.abs(ends[w - 1]! - goal) < Math.abs(ends[best - 1]! - goal)) best = w;
-    }
-    cuts.push(best);
-  }
-  return [0, ...cuts, words.length]
-    .slice(0, -1)
-    .map((from, i) => words.slice(from, [...cuts, words.length][i]).join(' '));
+    const parts = text.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return;
+    const startUs = Math.max(0, Math.round(word.start * US));
+    const next = words[i + 1]?.start;
+    const endUs = Math.round((word.end ?? next ?? word.start + 0.3) * US);
+    const step = Math.max(0, endUs - startUs) / parts.length;
+    parts.forEach((part, k) =>
+      result.push({
+        text: part,
+        startUs: Math.round(startUs + step * k),
+        endUs: Math.round(startUs + step * (k + 1)),
+      }),
+    );
+  });
+  return result;
 }
 
 /** Wrap a caption into at most two lines, breaking at the space nearest the middle. */
@@ -103,49 +88,54 @@ export function wrapLines(text: string, lineChars = CAPTION_LIMITS.lineChars): s
   return best < 0 ? text : `${text.slice(0, best)}\n${text.slice(best + 1)}`;
 }
 
-/** Recognised phrases to captions, within a timeline `durationUs` long. */
-export function toCaptions(phrases: readonly TimedText[], durationUs: number): Caption[] {
-  const captions: Caption[] = [];
-  phrases.forEach((phrase, index) => {
-    const text = cleanText(phrase.text);
-    if (!text) return;
-    const startUs = Math.max(0, Math.round(phrase.start * US));
-    const fallbackEnd = startUs + (text.length / CAPTION_LIMITS.charsPerSecond) * US;
-    const nextStart = phrases[index + 1]?.start;
-    const endUs = Math.round(
-      phrase.end !== null && phrase.end > phrase.start
-        ? phrase.end * US
-        : Math.min(fallbackEnd, nextStart !== undefined ? nextStart * US : Infinity),
-    );
-    // Share the phrase's time between its pieces by length, with enough
-    // pieces that none stays up longer than the maximum.
-    const byLength = splitText(text);
-    const words = text.split(' ').length;
-    const needed = Math.min(words, Math.ceil((endUs - startUs) / CAPTION_LIMITS.maxDurationUs));
-    const pieces = byLength.length >= needed ? byLength : splitEvenly(text, needed);
-    const total = pieces.reduce((n, p) => n + p.length, 0);
-    let at = startUs;
-    for (const piece of pieces) {
-      const length = ((endUs - startUs) * piece.length) / total;
-      captions.push({
-        text: wrapLines(piece),
-        startUs: Math.round(at),
-        endUs: Math.round(at + length),
-      });
-      at += length;
-    }
-  });
+/** Recognised words to captions, within a timeline `durationUs` long. */
+export function captionsFromWords(input: readonly TimedText[], durationUs: number): Caption[] {
+  const words = cleanWords(input).sort((a, b) => a.startUs - b.startUs);
+  const maxChars = CAPTION_LIMITS.lineChars * CAPTION_LIMITS.lines;
 
-  // Inside the timeline, in order, readable, and never overlapping.
-  captions.sort((a, b) => a.startUs - b.startUs);
-  const result: Caption[] = [];
-  captions.forEach((caption, i) => {
-    const previousEnd = result.at(-1)?.endUs ?? 0;
-    const nextStart = captions[i + 1]?.startUs ?? durationUs;
-    const startUs = Math.max(caption.startUs, previousEnd);
-    const wanted = Math.max(caption.endUs, startUs + CAPTION_LIMITS.minDurationUs);
-    const endUs = Math.min(wanted, Math.max(caption.endUs, nextStart), durationUs);
-    if (endUs - startUs >= 10_000) result.push({ ...caption, startUs, endUs });
+  // Group words into captions.
+  const groups: Word[][] = [];
+  let group: Word[] = [];
+  const length = (g: Word[]) => g.reduce((n, w) => n + w.text.length, 0) + g.length - 1;
+  for (const word of words) {
+    const last = group.at(-1);
+    const startNew =
+      last !== undefined &&
+      (length([...group, word]) > maxChars ||
+        word.endUs - group[0]!.startUs > CAPTION_LIMITS.maxDurationUs ||
+        word.startUs - last.endUs >= CAPTION_LIMITS.pauseUs ||
+        (/[.!?]$/.test(last.text) && length(group) >= maxChars / 3));
+    if (startNew) {
+      groups.push(group);
+      group = [];
+    }
+    group.push(word);
+  }
+  if (group.length > 0) groups.push(group);
+
+  // Time them: from the first word, held a little after the last, readable,
+  // never overlapping the next, inside the timeline.
+  const captions: Caption[] = [];
+  groups.forEach((g, i) => {
+    const previousEnd = captions.at(-1)?.endUs ?? 0;
+    const startUs = Math.max(g[0]!.startUs, previousEnd);
+    const nextStart = groups[i + 1]?.[0]!.startUs ?? durationUs;
+    const lastEnd = g.at(-1)!.endUs;
+    const wanted = Math.max(
+      lastEnd + CAPTION_LIMITS.holdUs,
+      startUs + CAPTION_LIMITS.minDurationUs,
+    );
+    const endUs = Math.min(wanted, Math.max(lastEnd, nextStart), durationUs);
+    if (endUs - startUs < 10_000) return;
+    captions.push({
+      text: wrapLines(g.map((w) => w.text).join(' ')),
+      startUs,
+      endUs,
+      words: g.map((w) => ({
+        start: Math.max(0, w.startUs - startUs),
+        end: Math.max(0, w.endUs - startUs),
+      })),
+    });
   });
-  return result;
+  return captions;
 }

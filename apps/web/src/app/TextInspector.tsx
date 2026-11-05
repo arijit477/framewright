@@ -11,7 +11,13 @@ import {
 import { Debouncer } from '../lib/debouncer';
 import { registerPendingEdits } from '../lib/pending-edits';
 import { toSrt, toVtt } from '../captions/srt';
-import { selectedClip, trackCaptions, updateText, useEditor } from '../store/editor';
+import {
+  CAPTION_HIGHLIGHT,
+  selectedClip,
+  trackCaptions,
+  updateText,
+  useEditor,
+} from '../store/editor';
 
 /** Typing and dragging sliders commit after this pause, so undo steps stay meaningful. */
 const COMMIT_DELAY_MS = 500;
@@ -181,6 +187,34 @@ function Inspector({ clip, saved }: { clip: Clip; saved: TextContent }) {
           </span>
         </label>
       </div>
+
+      {(draft.words?.length ?? 0) > 0 && (
+        <label className="field">
+          Word highlight
+          <span className="field-inline">
+            <input
+              type="checkbox"
+              checked={s.highlight !== undefined}
+              aria-label="Highlight each word as it’s spoken"
+              onChange={(e) =>
+                style(
+                  { highlight: e.target.checked ? CAPTION_HIGHLIGHT : undefined },
+                  { now: true },
+                )
+              }
+            />
+            {s.highlight !== undefined && (
+              <input
+                type="color"
+                aria-label="Highlight colour"
+                value={s.highlight}
+                onChange={(e) => style({ highlight: e.target.value })}
+                onBlur={flush}
+              />
+            )}
+          </span>
+        </label>
+      )}
 
       <div className="field">
         Alignment

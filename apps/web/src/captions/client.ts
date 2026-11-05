@@ -4,7 +4,7 @@ import type { TimedText } from './segments';
 
 export interface CaptionCallbacks {
   onProgress(stage: CaptionStage, fraction: number): void;
-  onDone(phrases: TimedText[], durationUs: number): void;
+  onDone(words: TimedText[], durationUs: number): void;
   onError(message: string): void;
 }
 
@@ -42,7 +42,7 @@ export class CaptionJob {
         this.callbacks.onProgress(message.stage, message.fraction);
         break;
       case 'done':
-        this.finish(() => this.callbacks.onDone(message.phrases, message.durationUs));
+        this.finish(() => this.callbacks.onDone(message.words, message.durationUs));
         break;
       case 'error':
         this.finish(() => this.callbacks.onError(message.message));
