@@ -29,6 +29,8 @@ export interface ProjectAsset {
   codec: string | null;
   hasVideo: boolean;
   hasAudio: boolean;
+  /** A still image (one picture, any length); absent for video and audio. */
+  still?: boolean;
 }
 
 /**
@@ -222,6 +224,7 @@ function validateAsset(value: unknown, index: number): ProjectAsset {
     codec: value.codec as string | null,
     hasVideo: value.hasVideo as boolean,
     hasAudio: value.hasAudio as boolean,
+    ...(value.still === true ? { still: true } : {}),
   };
 }
 

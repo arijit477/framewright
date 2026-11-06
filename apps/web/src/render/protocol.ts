@@ -9,6 +9,8 @@ export interface AssetInfo {
   codec: string | null;
   hasVideo: boolean;
   hasAudio: boolean;
+  /** A still image: one picture, any length. */
+  still?: boolean;
 }
 
 export type RendererBackend = 'webgpu' | 'canvas2d';

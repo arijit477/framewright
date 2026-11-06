@@ -132,7 +132,7 @@ export async function openProject(id: string, { quiet = false } = {}): Promise<b
     const files = new Map<string, File>();
     await Promise.all(
       doc.assets.map(async (asset) => {
-        const file = await storage!.getMedia(id, asset.id);
+        const file = await storage!.getMedia(id, asset);
         if (file) files.set(asset.id, file);
       }),
     );
@@ -262,7 +262,7 @@ export async function downloadBackup(projectId: string): Promise<void> {
     const doc = await storage.read(projectId);
     const media = new Map<string, File>();
     for (const asset of doc.assets) {
-      const file = await storage.getMedia(projectId, asset.id);
+      const file = await storage.getMedia(projectId, asset);
       if (file) media.set(asset.id, file);
     }
     const fileName = backupFileName(doc.name, new Date());

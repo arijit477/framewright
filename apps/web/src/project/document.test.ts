@@ -50,6 +50,19 @@ describe('project documents', () => {
     expect(parseProject(serializeProject(doc))).toEqual(doc);
   });
 
+  it('keeps the still-image flag, and only when set', () => {
+    const photo: ProjectAsset = {
+      ...asset,
+      id: 'a2',
+      name: 'photo.png',
+      type: 'image/png',
+      still: true,
+    };
+    const doc = parseProject(serializeProject(project({ assets: [asset, photo] })));
+    expect(doc.assets[1]!.still).toBe(true);
+    expect('still' in doc.assets[0]!).toBe(false); // older and video assets are unchanged
+  });
+
   it('creates an empty project', () => {
     const doc = createProject('p9', NOW);
     expect(doc).toMatchObject({ id: 'p9', name: DEFAULT_PROJECT_NAME, timeline: null, assets: [] });

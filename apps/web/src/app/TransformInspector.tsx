@@ -31,6 +31,8 @@ export function TransformInspector({ clip }: { clip: Clip }) {
   const reframing = useReframe((s) => s.clipId === clip.id);
   const reframeProgress = useReframe((s) => s.fraction);
   // The scale at which this clip covers the frame (100 when its shape matches).
+  // Following faces analyses video frames; a still image only needs "Fill frame".
+  const isStill = useEditor((s) => s.assets[clip.assetId]?.still === true);
   const fill = useEditor((s) => {
     const asset = s.assets[clip.assetId];
     return asset?.hasVideo
@@ -156,7 +158,7 @@ export function TransformInspector({ clip }: { clip: Clip }) {
             >
               Fill frame
             </button>
-            {reframing ? (
+            {isStill ? null : reframing ? (
               <button onClick={cancelReframe}>
                 Finding faces… {Math.floor(reframeProgress * 100)}% (cancel)
               </button>

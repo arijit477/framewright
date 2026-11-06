@@ -5,10 +5,14 @@ import {
   type InputAudioTrack,
   type InputVideoTrack,
 } from 'mediabunny';
+import { decodeStill, isStillFile, STILL_DURATION_US } from './still';
 
 /** An opened media file with its decodable tracks. Shared by every worker. */
 export interface OpenedAsset {
-  input: Input;
+  /** Null for a still image. */
+  input: Input | null;
+  /** A still image's picture (decoded once); null for video and audio files. */
+  still: ImageBitmap | null;
   /** Null if the file has no video track. */
   video: InputVideoTrack | null;
   /** Null if the file has no audio, or the browser can't decode it. */
@@ -25,6 +29,11 @@ export class UnsupportedMediaError extends Error {}
  * treated as no audio, so the video still imports.
  */
 export async function openAsset(file: Blob): Promise<OpenedAsset> {
+  if (isStillFile(file)) {
+    // No tracks: workers that only want sound or video frames skip it.
+    const still = await decodeStill(file);
+    return { input: null, still, video: null, audio: null, durationUs: STILL_DURATION_US };
+  }
   const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
   const [video, audio] = await Promise.all([
     input.getPrimaryVideoTrack(),
@@ -37,7 +46,7 @@ export async function openAsset(file: Blob): Promise<OpenedAsset> {
   }
   const decodableAudio = audio && (await audio.canDecode()) ? audio : null;
   const durationUs = Math.round((await input.computeDuration()) * 1_000_000);
-  return { input, video, audio: decodableAudio, durationUs };
+  return { input, still: null, video, audio: decodableAudio, durationUs };
 }
 
 export const toMicros = (seconds: number): number => Math.round(seconds * 1_000_000);

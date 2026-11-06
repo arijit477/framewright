@@ -36,7 +36,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Projects dialog: new, open, rename, delete; one tab per project (Web Locks)
 - [x] Project backups (`.framewright` = standard ZIP with media): download, import, drag-and-drop
 - [ ] Undo history that survives a reload
-- [ ] Image clips (PNG/JPG) with a default duration
+- [x] Image clips (PNG, JPEG, WebP, GIF, AVIF, BMP): 5 s by default, stretchable to any length
 - [x] Playwright end-to-end tests in CI with generated fixtures, exports validated by ffprobe
 - [ ] Deploy to Vercel; live demo link in README
 

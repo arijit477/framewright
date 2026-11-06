@@ -277,6 +277,14 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Image clips
+
+See [ADR 0032](./adr/0032-image-clips.md). `openAsset` recognises still images and decodes them
+once (`still`); the engine gives their clips a 24-hour source (`append_still_clip`). The render
+and export workers draw them through a `StillReader`, which returns the same `VideoSample` for
+every time (the `SampleReader` interface shared with the video `FrameReader`), so every effect
+applies unchanged.
+
 ## Frame shapes
 
 See [ADR 0029](./adr/0029-frame-shapes.md). The timeline's `aspect` sets the frame's shape;

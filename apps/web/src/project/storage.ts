@@ -2,6 +2,7 @@ import {
   parseProject,
   serializeProject,
   summarize,
+  type ProjectAsset,
   type ProjectDocument,
   type ProjectSummary,
 } from './document';
@@ -100,13 +101,26 @@ export class ProjectStorage {
     return handle.getFile();
   }
 
-  /** The stored copy of a media file, or null if it's missing. */
-  async getMedia(projectId: string, assetId: string): Promise<File | null> {
-    assertSafeId(assetId);
+  /**
+   * The stored copy of a media file, or null if it's missing. It's stored
+   * under the asset's id, with no type; it comes back with the original name
+   * and type, which some files need to be recognised (images have no
+   * container for the decoder to sniff).
+   */
+  async getMedia(
+    projectId: string,
+    asset: Pick<ProjectAsset, 'id' | 'name' | 'type' | 'lastModified'>,
+  ): Promise<File | null> {
+    assertSafeId(asset.id);
     try {
       const dir = await this.projectDir(projectId, false);
       const media = await dir.getDirectoryHandle('media');
-      return await (await media.getFileHandle(assetId)).getFile();
+      const stored = await (await media.getFileHandle(asset.id)).getFile();
+      // A File around the stored one: no copy is made.
+      return new File([stored], asset.name, {
+        type: asset.type,
+        lastModified: asset.lastModified,
+      });
     } catch {
       return null;
     }

@@ -8,9 +8,10 @@
 import { VideoSampleSink, type InputVideoTrack } from 'mediabunny';
 import type { Layer } from '../engine/types';
 import { openAsset, toMicros } from '../media/asset';
+import { StillReader } from '../media/still';
 import { drawItems } from './compose';
 import { createCompositor, type Compositor } from './compositor';
-import { FrameReader } from './frame-reader';
+import { FrameReader, type SampleReader } from './frame-reader';
 import type { Lut } from './lut';
 import { ReaderPool } from './reader-pool';
 import { compositionSize, DEFAULT_ASPECT } from '../lib/aspect';
@@ -28,8 +29,12 @@ let canvas: OffscreenCanvas | null = null;
 /** Applied when the canvas arrives, if a resize comes first. */
 let size = compositionSize(DEFAULT_ASPECT);
 const videoTracks = new Map<string, InputVideoTrack>();
+/** Still images, decoded once. */
+const stills = new Map<string, ImageBitmap>();
 /** One decoder per (asset, track), so the same file on two tracks doesn't thrash. */
-const readers = new ReaderPool((assetId) => {
+const readers = new ReaderPool<SampleReader>((assetId) => {
+  const still = stills.get(assetId);
+  if (still) return new StillReader(still);
   const track = videoTracks.get(assetId);
   return track ? new FrameReader(new VideoSampleSink(track)) : null;
 });
@@ -55,7 +60,10 @@ scope.onmessage = (event) => {
       break;
     case 'clearAssets':
       videoTracks.clear();
-      void readers.clear();
+      void readers.clear().then(() => {
+        for (const bitmap of stills.values()) bitmap.close();
+        stills.clear();
+      });
       break;
     case 'setLuts':
       luts.clear();
@@ -92,23 +100,27 @@ async function init(target: OffscreenCanvas) {
 
 async function addAsset(id: string, file: File) {
   try {
-    const { video, durationUs } = await openAsset(file);
+    const { video, still, durationUs } = await openAsset(file);
     // Video clips last as long as their video track; audio-only files use the container.
     const videoDurationUs = video ? toMicros(await video.computeDuration()) : durationUs;
     // Re-adding an asset (relink) replaces its decoders.
     void readers.removeAsset(id);
     if (video) videoTracks.set(id, video);
     else videoTracks.delete(id);
+    stills.get(id)?.close();
+    if (still) stills.set(id, still);
+    else stills.delete(id);
     send({
       type: 'assetReady',
       asset: {
         id,
         name: file.name,
         durationUs: videoDurationUs,
-        width: video?.displayWidth ?? 0,
-        height: video?.displayHeight ?? 0,
+        width: video?.displayWidth ?? still?.width ?? 0,
+        height: video?.displayHeight ?? still?.height ?? 0,
         codec: video?.codec ?? null,
-        hasVideo: video !== null,
+        hasVideo: video !== null || still !== null,
+        still: still !== null,
         hasAudio: false, // filled in by the audio worker
       },
     });

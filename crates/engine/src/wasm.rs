@@ -111,6 +111,19 @@ impl Engine {
             .map_err(err)
     }
 
+    /// Append a still image lasting `duration` (µs) to a video track.
+    #[wasm_bindgen(js_name = appendStillClip)]
+    pub fn append_still_clip(
+        &mut self,
+        track_id: u32,
+        asset_id: &str,
+        duration: f64,
+    ) -> Result<u32, JsError> {
+        self.timeline
+            .append_still_clip(track_id, asset_id, to_micros(duration))
+            .map_err(err)
+    }
+
     #[wasm_bindgen(js_name = removeClip)]
     pub fn remove_clip(&mut self, clip_id: u32) -> Result<(), JsError> {
         self.timeline.remove_clip(clip_id).map(|_| ()).map_err(err)

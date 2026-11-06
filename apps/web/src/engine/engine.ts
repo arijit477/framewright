@@ -63,6 +63,10 @@ export class TimelineEngine {
     return Array.from(this.inner.pruneEmptyTracks());
   }
 
+  appendStillClip(trackId: number, assetId: string, duration: number): number {
+    return this.inner.appendStillClip(trackId, assetId, duration);
+  }
+
   appendClip(trackId: number, assetId: string, sourceDuration: number): number {
     return this.inner.appendClip(trackId, assetId, sourceDuration);
   }

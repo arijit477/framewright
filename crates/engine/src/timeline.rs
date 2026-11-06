@@ -97,6 +97,10 @@ pub const TEXT_ASSET_ID: &str = "";
 /// ...and an effectively unlimited "source", so they can be trimmed to any length.
 pub const TEXT_SOURCE_DURATION: Micros = 24 * 3600 * 1_000_000;
 
+/// A still image has no length of its own: like text, it can be stretched to
+/// any duration up to this.
+pub const STILL_SOURCE_DURATION: Micros = TEXT_SOURCE_DURATION;
+
 fn default_volume() -> u16 {
     100
 }
@@ -308,6 +312,8 @@ pub enum EditError {
     InvalidText(#[from] TextError),
     #[error("clip {0} is not a text clip")]
     NotText(ClipId),
+    #[error("images go on video tracks")]
+    StillNeedsVideoTrack,
     #[error("text can only go on a video track")]
     TextNeedsVideoTrack,
     #[error("invalid transform: {0}")]
@@ -689,6 +695,29 @@ impl Timeline {
             source_duration,
             0,
             source_duration,
+        )
+    }
+
+    /// Append a still image (a media clip whose every source time shows the
+    /// same picture) lasting `duration`, extendable by trimming like a title.
+    pub fn append_still_clip(
+        &mut self,
+        track_id: TrackId,
+        asset_id: &str,
+        duration: Micros,
+    ) -> Result<ClipId, EditError> {
+        let index = self.track_index(track_id)?;
+        if self.tracks[index].kind != TrackKind::Video {
+            return Err(EditError::StillNeedsVideoTrack);
+        }
+        let start = self.tracks[index].clips.last().map_or(0, Clip::end);
+        self.add_clip(
+            track_id,
+            asset_id,
+            start,
+            duration,
+            0,
+            STILL_SOURCE_DURATION,
         )
     }
 
@@ -2363,6 +2392,33 @@ mod tests {
         assert_eq!(
             tl.set_clip_lut(clip, Some(bad)),
             Err(EditError::InvalidColor(ColorError::LutId))
+        );
+    }
+
+    #[test]
+    fn stills_last_any_length_and_go_on_video_tracks() {
+        let mut tl = Timeline::new();
+        let video = tl.add_track(TrackKind::Video);
+        let audio = tl.add_track(TrackKind::Audio);
+        let photo = tl.append_still_clip(video, "photo", 5 * S).unwrap();
+        let clip = tl.tracks[0].clips[0].clone();
+        assert_eq!((clip.start, clip.duration, clip.source_in), (0, 5 * S, 0));
+        assert_eq!(clip.source_duration, STILL_SOURCE_DURATION);
+        // Stretched well past its default length, then split: both halves are the same still.
+        tl.trim_clip(photo, Edge::End, 40 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[0].duration, 40 * S);
+        tl.split_clip(photo, 10 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[1].asset_id, "photo");
+        // The next one follows on.
+        tl.append_still_clip(video, "logo", 2 * S).unwrap();
+        assert_eq!(tl.tracks[0].clips[2].start, 40 * S);
+        assert_eq!(
+            tl.append_still_clip(audio, "photo", 5 * S),
+            Err(EditError::StillNeedsVideoTrack)
+        );
+        assert_eq!(
+            tl.append_still_clip(video, "x", 0),
+            Err(EditError::InvalidDuration)
         );
     }
 

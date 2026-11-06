@@ -18,6 +18,8 @@ export const FIXTURES = {
   portrait: 'portrait.jpg',
   facePan: 'face-pan.webm',
   talkingHead: 'talking-head.webm',
+  squarePng: 'blue-square.png',
+  widePhoto: 'yellow.jpg',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 
