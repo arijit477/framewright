@@ -6,6 +6,7 @@ import {
   type CachedStripInfo,
   type ThumbnailCache,
 } from './cache';
+import { DetailCache, detailId } from './detail';
 import type { FromThumbnailWorker } from './protocol';
 
 /** Thumbnails of one asset, filled in as the worker produces them. */
@@ -36,6 +37,12 @@ export class ThumbnailClient {
   private cache: ThumbnailCache | null = null;
   /** The file of each strip being generated, to describe it when it's cached. */
   private readonly generating = new Map<string, { file: Blob; cache: ThumbnailCache }>();
+  /** Each asset's file, for detail requests. */
+  private readonly files = new Map<string, Blob>();
+  /** Finer thumbnails (zoomed in), per asset; see detail.ts. */
+  private readonly details = new Map<string, DetailCache>();
+  /** Detail thumbnails asked for and not yet arrived, per asset (the latest request only). */
+  private readonly pendingDetail = new Map<string, Set<number>>();
 
   constructor() {
     this.worker = new Worker(new URL('./thumbnail.worker.ts', import.meta.url), { type: 'module' });
@@ -47,10 +54,45 @@ export class ThumbnailClient {
     this.cache = cache;
   }
 
+  /** A finer thumbnail, if it has arrived. */
+  detail(id: string, spacingUs: number, keyUs: number): ImageBitmap | undefined {
+    return this.details.get(id)?.get(detailId(spacingUs, keyUs));
+  }
+
+  /**
+   * Ask for finer thumbnails at these source times (the visible part of a clip,
+   * zoomed in). Times already here or on their way are skipped; a newer request
+   * replaces an older one the worker hasn't started.
+   */
+  requestDetail(id: string, spacingUs: number, keysUs: readonly number[]): void {
+    const file = this.files.get(id);
+    const strip = this.strips.get(id);
+    if (!file || !strip) return;
+    const cache = this.details.get(id);
+    const pending = this.pendingDetail.get(id);
+    const missing = keysUs.filter((key) => {
+      const did = detailId(spacingUs, key);
+      return !cache?.has(did) && !pending?.has(did);
+    });
+    if (missing.length === 0) return;
+    this.pendingDetail.set(id, new Set(missing.map((key) => detailId(spacingUs, key))));
+    this.worker.postMessage({
+      type: 'detail',
+      id,
+      job: this.jobs.get(id) ?? 0,
+      file,
+      spacingUs,
+      timesUs: missing,
+      width: strip.width,
+      height: strip.height,
+    });
+  }
+
   /** Thumbnails for an asset: from the cache if it has this file's, otherwise generated. */
   request(id: string, file: Blob): void {
     this.drop(id);
     this.generating.delete(id);
+    this.files.set(id, file);
     const job = ++this.nextJob;
     this.jobs.set(id, job);
     void this.start(id, job, file);
@@ -136,6 +178,7 @@ export class ThumbnailClient {
     for (const id of [...this.strips.keys()]) this.drop(id);
     this.jobs.clear();
     this.generating.clear();
+    this.files.clear();
     this.worker.postMessage({ type: 'clear' });
   }
 
@@ -149,6 +192,9 @@ export class ThumbnailClient {
   }
 
   private drop(id: string) {
+    this.details.get(id)?.clear();
+    this.details.delete(id);
+    this.pendingDetail.delete(id);
     const strip = this.strips.get(id);
     if (!strip) return;
     for (const bitmap of strip.bitmaps) bitmap?.close();
@@ -158,7 +204,25 @@ export class ThumbnailClient {
   private handle(message: FromThumbnailWorker) {
     if (this.jobs.get(message.id) !== message.job) {
       // A reply to a replaced or cleared request.
-      if (message.type === 'thumbs') for (const { bitmap } of message.items) bitmap.close();
+      if (message.type === 'thumbs' || message.type === 'detailThumbs') {
+        for (const { bitmap } of message.items) bitmap.close();
+      }
+      return;
+    }
+    if (message.type === 'detailThumbs') {
+      const spacing = message.spacingUs;
+      if (!this.strips.has(message.id)) {
+        for (const { bitmap } of message.items) bitmap.close();
+        return;
+      }
+      let cache = this.details.get(message.id);
+      if (!cache) this.details.set(message.id, (cache = new DetailCache()));
+      for (const { timeUs, bitmap } of message.items) {
+        const did = detailId(spacing, timeUs);
+        cache.set(did, bitmap);
+        this.pendingDetail.get(message.id)?.delete(did);
+      }
+      this.listener();
       return;
     }
     switch (message.type) {

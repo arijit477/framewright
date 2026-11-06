@@ -102,6 +102,13 @@ export default function globalSetup() {
       '-filter_complex [1:v]scale=576:720[p];[0:v][p]overlay=x=352+10*t:y=0:shortest=1 ' +
       '-t 4 -c:v libvpx-vp9 -b:v 1M -deadline realtime',
   );
+  // 3 s of a single colour whose hue turns a full circle every second: every
+  // moment looks different, and the whole frame shows it.
+  make(
+    FIXTURES.hueCycle,
+    '-f lavfi -i color=c=0xd05050:size=640x360:rate=30:duration=3 -vf hue=h=360*t ' +
+      '-c:v libvpx-vp9 -b:v 300k -deadline realtime',
+  );
   // Still images: a 600x600 blue PNG (square, so pillarboxed in 16:9) and a
   // 1280x720 yellow JPEG (fills a 16:9 frame).
   make(FIXTURES.squarePng, '-f lavfi -i color=c=blue:size=600x600 -frames:v 1');

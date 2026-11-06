@@ -33,12 +33,29 @@ interface Job {
 const queue: Job[] = [];
 let running: Job | null = null;
 
+interface DetailJob extends Job {
+  spacingUs: number;
+  timesUs: number[];
+  width: number;
+  height: number;
+}
+/** Detail requests go first (the user is looking at them), one per asset at a time. */
+const details: DetailJob[] = [];
+
 scope.onmessage = (event) => {
   const message = event.data;
   if (message.type === 'clear') {
-    for (const job of queue) job.cancelled = true;
+    for (const job of [...queue, ...details]) job.cancelled = true;
     queue.length = 0;
+    details.length = 0;
     if (running) running.cancelled = true;
+    return;
+  }
+  if (message.type === 'detail') {
+    // The view moved: an older, unstarted request for this asset is no longer wanted.
+    for (const job of details) if (job.id === message.id) job.cancelled = true;
+    details.push({ ...message, cancelled: false });
+    void drain();
     return;
   }
   // A new request for the same asset (e.g. relinked) replaces any older one.
@@ -49,12 +66,12 @@ scope.onmessage = (event) => {
 
 async function drain() {
   if (running) return;
-  while (queue.length > 0) {
-    const job = queue.shift()!;
+  while (queue.length > 0 || details.length > 0) {
+    const job = details.shift() ?? queue.shift()!;
     if (job.cancelled) continue;
     running = job;
     try {
-      await generate(job);
+      await ('timesUs' in job ? detail(job as DetailJob) : generate(job));
     } catch (error) {
       if (!job.cancelled) {
         send({
@@ -147,4 +164,31 @@ async function stillThumbnail(job: Job, still: ImageBitmap) {
   } finally {
     still.close();
   }
+}
+
+/** Thumbnails at the requested source times (zoomed in), sent as they're made. */
+async function detail(job: DetailJob) {
+  const { video, still } = await openAsset(job.file);
+  still?.close(); // a still's base strip already shows it at every zoom
+  if (!video || job.cancelled) return;
+  const sink = new CanvasSink(video, { width: job.width, height: job.height, fit: 'cover' });
+  let items: { timeUs: number; bitmap: ImageBitmap }[] = [];
+  const flush = () => {
+    if (items.length === 0) return;
+    send(
+      { type: 'detailThumbs', id: job.id, job: job.job, spacingUs: job.spacingUs, items },
+      items.map((i) => i.bitmap),
+    );
+    items = [];
+  };
+  let n = 0;
+  for await (const wrapped of sink.canvasesAtTimestamps(job.timesUs.map((t) => t / 1_000_000))) {
+    const timeUs = job.timesUs[n++]!;
+    if (job.cancelled) break;
+    if (!wrapped) continue;
+    items.push({ timeUs, bitmap: await createImageBitmap(wrapped.canvas) });
+    if (items.length >= BATCH_SIZE) flush();
+  }
+  if (!job.cancelled) flush();
+  else for (const item of items) item.bitmap.close();
 }

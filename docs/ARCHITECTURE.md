@@ -503,6 +503,11 @@ Video clips show a filmstrip (`apps/web/src/thumbnails`):
 - **Drawing:** tiles are laid from each clip's left edge (stable while scrolling), only the visible
   ones are drawn, and each uses the nearest loaded thumbnail while the strip fills in. Gradients
   keep the name and waveform legible, and the label is pinned to the clip's visible edge.
+- **Zoomed in** ([ADR 0037](./adr/0037-finer-thumbnails-when-zoomed-in.md)): once more than two
+  neighbouring tiles would share a base thumbnail, the timeline asks the worker for thumbnails at
+  a fixed finer spacing (0.5 s down to 62.5 ms, `detail.ts`) for the visible tiles only. Detail
+  requests go ahead of base strips, a newer one replaces an unstarted older one, and up to 240 per
+  asset are kept in an LRU cache (not saved with the project).
 
 ## Projects and persistence
 
