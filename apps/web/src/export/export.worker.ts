@@ -178,7 +178,7 @@ async function run(
       audioSource = new AudioSampleSource({ codec: audioCodec, bitrate: audioBitrate(settings) });
       output.addAudioTrack(audioSource, { maximumPacketCount: packetLimits.audio });
       mixer = new Mixer(
-        streamsFrom(audioTracks, EXPORT_SAMPLE_RATE),
+        streamsFrom(audioTracks, EXPORT_SAMPLE_RATE, 'sinc'),
         EXPORT_SAMPLE_RATE,
         AUDIO_CHUNK_FRAMES,
       );

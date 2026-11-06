@@ -20,6 +20,7 @@ export const FIXTURES = {
   talkingHead: 'talking-head.webm',
   squarePng: 'blue-square.png',
   widePhoto: 'yellow.jpg',
+  highTone: 'tone-9k-22k.wav',
 } as const;
 export const fixture = (name: string) => join(FIXTURE_DIR, name);
 
