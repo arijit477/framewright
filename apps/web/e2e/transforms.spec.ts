@@ -107,7 +107,8 @@ test.describe('transforms', () => {
     const path = await editor.exportTo(test.info().outputDir, { resolution: '720p', fps: 30 });
     // Half size, centred: covers x 320-960, y 180-540.
     expect(isRed(averageRgb(frameRgb(path, 1.5, region(560, 300, 160, 120))))).toBe(true);
-    expect(isRed(averageRgb(frameRgb(path, 1.5, region(40, 40, 160, 100))))).toBe(false);
+    // The pattern shows in the corner (cyan there; its top left is red, so not that one).
+    expect(isRed(averageRgb(frameRgb(path, 1.5, region(1080, 580, 160, 100))))).toBe(false);
 
     await editor.press('Control+z');
     expect(await editor.sliderValue('Scale')).toBe(100);

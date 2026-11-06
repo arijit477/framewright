@@ -260,6 +260,11 @@ See [ADR 0011](./adr/0011-transforms-and-gestures.md).
   apply changes live, validate each update, and record **one** undo step per drag; Escape or
   a pointer cancel restores the start. Dragging on the preview moves the selected clip (or the
   topmost visible one): titles via their style position, video via the transform.
+- **Handles** ([ADR 0039](./adr/0039-resize-and-rotate-handles.md)): over the selected
+  video or image clip while it's on screen, `TransformHandles` draws its outline (from
+  `layerMatrix`, so it matches the picture) with corner handles that scale it about its centre
+  and a round handle that rotates it (Shift snaps to 15°). The maths is in `app/handles.ts`;
+  drags use the same gesture functions, so each is one undo step and Escape cancels.
 - **Pending edits:** inspectors debounce typing and slider drags, and register their debouncers
   in `lib/pending-edits.ts`. Save (Ctrl+S, which works even while typing), backup, export and
   page hide/unload flush them first, so a change made a moment ago is never left out.
