@@ -14,6 +14,7 @@ export class RenderClient {
   private backend: RendererBackend | null = null;
   private lastFrameMs = 0;
   private listener: Listener | null = null;
+  private noticeListener: ((message: string) => void) | null = null;
 
   constructor() {
     this.worker = new Worker(new URL('./render.worker.ts', import.meta.url), { type: 'module' });
@@ -56,6 +57,11 @@ export class RenderClient {
     this.listener = listener;
   }
 
+  /** Messages for the user from the renderer (each shown once). */
+  onNotice(listener: (message: string) => void): void {
+    this.noticeListener = listener;
+  }
+
   private handle(message: FromWorker) {
     switch (message.type) {
       case 'ready':
@@ -76,6 +82,9 @@ export class RenderClient {
         break;
       case 'error':
         console.error('[render worker]', message.message);
+        break;
+      case 'notice':
+        this.noticeListener?.(message.message);
         break;
     }
   }

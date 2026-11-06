@@ -234,6 +234,14 @@ impl Engine {
             .map_err(err)
     }
 
+    /// Cut the person out of a media clip's background (or stop).
+    #[wasm_bindgen(js_name = setClipRemoveBackground)]
+    pub fn set_clip_remove_background(&mut self, clip_id: u32, on: bool) -> Result<(), JsError> {
+        self.timeline
+            .set_clip_remove_background(clip_id, on)
+            .map_err(err)
+    }
+
     /// Set the frame's shape: `"16:9"`, `"9:16"`, `"1:1"` or `"4:5"`.
     #[wasm_bindgen(js_name = setAspect)]
     pub fn set_aspect(&mut self, aspect: JsValue) -> Result<(), JsError> {

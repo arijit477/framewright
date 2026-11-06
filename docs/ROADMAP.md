@@ -81,7 +81,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] Silence detection and one-click removal (selected clips; adjustable threshold, length and margin)
 - [x] Aspect-ratio presets (16:9, 9:16, 1:1, 4:5), with "Fill frame" to cover a new shape
 - [x] Smart reframing: "Fill and follow faces" keeps the speaker in frame (on the device)
-- [ ] Background removal (segmentation model, permissive licence only)
+- [x] Background removal: live, on the device (MediaPipe selfie segmentation, Apache-2.0)
 - [ ] Templates
 
 ## Phase 4: Desktop and polish (v1.0.0)

@@ -284,6 +284,14 @@ See [ADR 0029](./adr/0029-frame-shapes.md). The timeline's `aspect` sets the fra
 exports: the resolution is the short edge). The store sends the renderer a `resize` whenever
 the shape changes. Text sizes refer to the frame's short side.
 
+## Removing the background
+
+See [ADR 0031](./adr/0031-remove-background.md). Clips with `removeBackground` get a mask per
+frame: `drawItems` (shared by preview and export) asks `segment/matter.ts` (loaded on first use)
+to run MediaPipe's selfie segmentation on a 256×256 copy of the frame. `segment/matte.ts`
+shapes the output into a mask. The Canvas 2D compositor applies it with `destination-in`, the
+WebGPU one in the shader (self-tested).
+
 ## Smart reframing
 
 See [ADR 0030](./adr/0030-smart-reframing.md). `reframe/reframe.worker.ts` samples a clip's

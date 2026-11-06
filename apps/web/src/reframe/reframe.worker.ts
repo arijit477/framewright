@@ -8,6 +8,7 @@ import * as ort from 'onnxruntime-web/webgpu';
 // The bundled ONNX Runtime engine (the same files the captions use).
 import ortMjs from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url';
 import ortWasm from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
+import { cachedModel } from '../lib/model-cache';
 import { openAsset } from '../media/asset';
 import { decodeFaces, DETECTOR_INPUT, letterbox, toInput } from './faces';
 import type { FrameFaces } from './path';
@@ -28,29 +29,15 @@ self.onmessage = (event: MessageEvent<ToReframeWorker>) => {
   );
 };
 
-/** The model's bytes, from the browser's cache after the first time. */
-async function modelBytes(): Promise<ArrayBuffer> {
-  let cache: Cache | null = null;
-  try {
-    cache = await caches.open('framewright-models');
-    const hit = await cache.match(FACE_MODEL.url);
-    if (hit) return await hit.arrayBuffer();
-  } catch {
-    // No cache storage (e.g. private browsing): download each time.
-  }
-  const response = await fetch(FACE_MODEL.url);
-  if (!response.ok)
-    throw new Error(`The face detector couldn’t be downloaded (${response.status}).`);
-  if (cache) await cache.put(FACE_MODEL.url, response.clone()).catch(() => {});
-  return await response.arrayBuffer();
-}
-
 async function run({ file, sourceFrom, sourceTo }: ToReframeWorker) {
   const { video } = await openAsset(file);
   if (!video) throw new Error('This clip has no picture to reframe.');
-  const session = await ort.InferenceSession.create(new Uint8Array(await modelBytes()), {
-    executionProviders: ['wasm'],
-  });
+  const session = await ort.InferenceSession.create(
+    new Uint8Array(await cachedModel(FACE_MODEL.url, 'face detector')),
+    {
+      executionProviders: ['wasm'],
+    },
+  );
   const width = video.displayWidth;
   const height = video.displayHeight;
   const placement = letterbox(width, height);

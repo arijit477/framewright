@@ -126,6 +126,7 @@ const get = useEditor.getState;
 // Services live outside React: they are long-lived and not serialisable state.
 let engine: TimelineEngine | null = null;
 export const renderer = new RenderClient();
+renderer.onNotice((message) => notify('error', message));
 renderer.onStats((stats) => set({ backend: stats.backend, lastFrameMs: stats.lastFrameMs }));
 export const audio = new AudioOutput();
 audio.onPeaks((id, data) => set((s) => ({ peaks: { ...s.peaks, [id]: data } })));
@@ -1412,6 +1413,15 @@ export function setClipsSpeed(ids: readonly number[], percent: number): boolean 
 export function setClipsVolume(ids: readonly number[], percent: number): boolean {
   return edit((e) => {
     for (const id of ids) e.setClipVolume(id, percent);
+  });
+}
+
+/** Turn background removal on or off for media clips (one undo step). */
+export function setClipsRemoveBackground(ids: readonly number[], on: boolean): boolean {
+  const clips = clipsByIds(ids).filter((c) => !c.text);
+  if (clips.length === 0) return false;
+  return edit((e) => {
+    for (const c of clips) e.setClipRemoveBackground(c.id, on);
   });
 }
 

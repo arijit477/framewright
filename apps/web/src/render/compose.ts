@@ -15,6 +15,8 @@ export async function drawItems(
   layers: Layer[],
   readers: ReaderPool<FrameReader>,
   luts: ReadonlyMap<string, Lut> = new Map(),
+  /** Background removal couldn't run (e.g. the model didn't download): the frame is drawn whole. */
+  onMatteError?: (message: string) => void,
 ): Promise<DrawItem[]> {
   const items = await Promise.all(
     layers.map(async (layer): Promise<DrawItem | null> => {
@@ -30,6 +32,16 @@ export async function drawItems(
       const sample = await readers
         .get(layer.assetId, layer.trackIndex)
         ?.frameAt(layer.sourceTime / 1_000_000);
+      // Background removal: a mask from the frame itself (the model loads on first use).
+      let mask: ImageBitmap | null = null;
+      if (sample && layer.removeBackground) {
+        try {
+          const { loadMatter } = await import('../segment/matter');
+          mask = await (await loadMatter()).mask(sample);
+        } catch (error) {
+          onMatteError?.(error instanceof Error ? error.message : String(error));
+        }
+      }
       return sample
         ? {
             kind: 'video',
@@ -42,6 +54,7 @@ export async function drawItems(
                 ? { lut: luts.get(layer.lut.lutId)!, intensity: layer.lut.intensityPercent / 100 }
                 : null,
             effect: transitionEffect(layer.transition),
+            mask,
           }
         : null;
     }),

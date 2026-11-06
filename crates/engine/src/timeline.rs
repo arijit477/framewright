@@ -80,6 +80,14 @@ pub struct Clip {
     /// Inactive (ignored) while the clips aren't touching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition_in: Option<Transition>,
+    /// Cut the person out of their background (a matte computed per frame by
+    /// the renderer), showing the tracks below. Media clips only; off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub remove_background: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub const MAX_VOLUME_PERCENT: u16 = 200;
@@ -221,6 +229,9 @@ pub struct Layer {
     /// Set while the layer is part of a transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<LayerTransition>,
+    /// Cut the person out of the background (omitted when off).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub remove_background: bool,
 }
 
 /// One audible stretch of a clip, as the audio mixer needs it.
@@ -588,6 +599,16 @@ impl Timeline {
         Ok(())
     }
 
+    /// Turn background removal on or off for a media clip.
+    pub fn set_clip_remove_background(
+        &mut self,
+        clip_id: ClipId,
+        on: bool,
+    ) -> Result<(), EditError> {
+        self.media_clip_mut(clip_id)?.remove_background = on;
+        Ok(())
+    }
+
     /// A media clip's transform at timeline time `at` (animated if it has
     /// keyframes; held before the first and after the last).
     pub fn clip_transform_at(
@@ -647,6 +668,7 @@ impl Timeline {
             color: ColorAdjust::default(),
             lut: None,
             transition_in: None,
+            remove_background: false,
         });
         Ok(id)
     }
@@ -1245,6 +1267,7 @@ fn clip_layer(
         color: clip.color,
         lut: clip.lut.clone(),
         transition,
+        remove_background: clip.remove_background,
     }
 }
 
@@ -2340,6 +2363,33 @@ mod tests {
         assert_eq!(
             tl.set_clip_lut(clip, Some(bad)),
             Err(EditError::InvalidColor(ColorError::LutId))
+        );
+    }
+
+    #[test]
+    fn background_removal_is_set_resolved_saved_split_and_media_only() {
+        let (mut tl, track, clip) = timeline_with_clip();
+        assert!(!tl.resolve(3 * S)[0].remove_background);
+        assert!(
+            !tl.to_json().contains("removeBackground"),
+            "off isn't saved"
+        );
+        tl.set_clip_remove_background(clip, true).unwrap();
+        assert!(tl.resolve(3 * S)[0].remove_background);
+        assert!(tl.to_json().contains(r#""removeBackground":true"#));
+        assert_eq!(Timeline::from_json(&tl.to_json()).unwrap(), tl);
+        tl.split_clip(clip, 4 * S).unwrap();
+        assert!(
+            tl.tracks[0].clips[1].remove_background,
+            "both halves keep it"
+        );
+        tl.set_clip_remove_background(clip, false).unwrap();
+        assert!(!tl.tracks[0].clips[0].remove_background);
+
+        let text = tl.add_text_clip(track, 9 * S, S, title("Hi")).unwrap();
+        assert_eq!(
+            tl.set_clip_remove_background(text, true),
+            Err(EditError::NotMedia)
         );
     }
 

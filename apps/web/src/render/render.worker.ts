@@ -35,6 +35,13 @@ const readers = new ReaderPool((assetId) => {
 });
 const luts = new Map<string, Lut>();
 let pending: { requestId: number; layers: Layer[] } | null = null;
+/** Background removal failures already reported (each once). */
+const reported = new Set<string>();
+const matteFailed = (message: string) => {
+  if (reported.has(message)) return;
+  reported.add(message);
+  send({ type: 'notice', message: `Background removal isn’t available: ${message}` });
+};
 let rendering = false;
 
 scope.onmessage = (event) => {
@@ -122,7 +129,9 @@ async function drain() {
       const { requestId, layers } = pending;
       pending = null;
       const started = performance.now();
-      compositor.draw(await drawItems(layers, readers, luts));
+      const items = await drawItems(layers, readers, luts, matteFailed);
+      compositor.draw(items);
+      for (const item of items) if (item.kind === 'video') item.mask?.close();
       send({ type: 'rendered', requestId, ms: performance.now() - started });
     }
   } catch (error) {

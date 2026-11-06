@@ -31,6 +31,8 @@ export interface Clip {
   lut?: LutRef;
   /** Transition from the clip directly before (inactive unless they touch). */
   transitionIn?: Transition;
+  /** Cut the person out of the background (media clips; absent = off). */
+  removeBackground?: boolean;
 }
 
 /** A clip on the clipboard (mirrors `CopiedClip`): `clip.start` is relative to the earliest. */
@@ -200,6 +202,8 @@ export interface Layer {
   lut?: LutRef;
   /** Set while this layer is part of a transition. */
   transition?: LayerTransition;
+  /** Cut the person out of the background (absent = off). */
+  removeBackground?: boolean;
 }
 
 /** One audible stretch of a clip, for the audio mixer. */

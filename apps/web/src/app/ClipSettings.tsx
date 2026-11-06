@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { MAX_VOLUME_PERCENT, type Clip } from '../engine/types';
 import { allSame } from '../lib/collections';
-import { setClipsSpeed, setClipsVolume, toggleMuteClips } from '../store/editor';
+import {
+  setClipsRemoveBackground,
+  setClipsSpeed,
+  setClipsVolume,
+  toggleMuteClips,
+  useEditor,
+} from '../store/editor';
 import { clipsWithSound, openSilence } from '../store/silence';
 import { Slider } from './TransformInspector';
 
@@ -20,6 +26,9 @@ export function ClipSettings({ clips }: { clips: readonly Clip[] }) {
   const mixedSpeed = !allSame(clips, speed);
   const current = speed(main);
   const options = SPEEDS.includes(current) ? SPEEDS : [...SPEEDS, current].sort((a, b) => a - b);
+  const allVideo = useEditor((s) => clips.every((c) => s.assets[c.assetId]?.hasVideo));
+  const removing = clips.every((c) => c.removeBackground);
+  const mixedRemoving = !removing && clips.some((c) => c.removeBackground);
   return (
     <section className="inspector-section" aria-label="Speed and volume">
       <h2>{clips.length === 1 ? 'Clip' : `Clip (${clips.length} clips)`}</h2>
@@ -44,6 +53,22 @@ export function ClipSettings({ clips }: { clips: readonly Clip[] }) {
       </label>
       {/* Remount when the clips or committed values change, so the draft resets. */}
       <Volume key={clips.map((c) => `${c.id}:${c.volumePercent}`).join()} clips={clips} />
+      {allVideo && (
+        <label
+          className="radio"
+          title="Cut the person out of their background, showing the tracks below"
+        >
+          <input
+            type="checkbox"
+            checked={removing}
+            ref={(el) => {
+              if (el) el.indeterminate = mixedRemoving;
+            }}
+            onChange={(e) => setClipsRemoveBackground(ids, e.target.checked)}
+          />
+          Remove background
+        </label>
+      )}
       {clipsWithSound(ids).length > 0 && (
         <button type="button" onClick={() => openSilence(clipsWithSound(ids))}>
           Remove silences…

@@ -80,6 +80,10 @@ export class TimelineEngine {
     this.inner.trimClipRipple(clipId, edge, at);
   }
 
+  setClipRemoveBackground(clipId: number, on: boolean): void {
+    this.inner.setClipRemoveBackground(clipId, on);
+  }
+
   setAspect(aspect: AspectRatio): void {
     this.inner.setAspect(aspect);
   }
