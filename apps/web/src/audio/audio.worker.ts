@@ -34,7 +34,7 @@ scope.onmessage = (event) => {
     case 'init':
       ring = new RingWriter(message.buffers);
       sampleRate = message.sampleRate;
-      mixer = new Mixer(streamsFrom(tracks, sampleRate), sampleRate, CHUNK_FRAMES);
+      mixer = new Mixer(streamsFrom(tracks, sampleRate, 'sinc'), sampleRate, CHUNK_FRAMES);
       break;
     case 'addAsset':
       void addAsset(message.id, message.file);

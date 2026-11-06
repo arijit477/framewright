@@ -117,7 +117,7 @@ Audio uses three threads that share memory through `SharedArrayBuffer`s
 1. **Engine:** `audioSegments(from, to)` returns every audible clip: video clips (their
    embedded audio) and audio-track clips, skipping muted or 0% clips, each with its linear gain.
 2. **Audio worker:** keeps one decoder stream per audible clip, resamples each to 48 kHz
-   (`Resampler`, linear interpolation with a fractional position carried across chunks), mixes
+   (`Resampler`, a windowed-sinc filter with a fractional position carried across chunks; ADR 0034), mixes
    them with their gain, and writes 1024-frame chunks into a lock-free ring buffer. It keeps
    about 250 ms buffered, which is enough to absorb decode jitter but short enough that edits
    are heard almost immediately.
@@ -465,6 +465,9 @@ See [ADR 0012](./adr/0012-transitions.md).
 - **Hard cuts** ([ADR 0033](./adr/0033-declick-hard-cuts.md)): every other edge of a clip's
   sound gets a 5 ms linear fade (`DECLICK`) so it doesn't click, except a seamless join, such as
   the halves of a split clip.
+- **Resampling** ([ADR 0034](./adr/0034-windowed-sinc-resampling.md)): sources at other rates go
+  through a windowed-sinc filter (`Resampler`, `quality: 'sinc'`) in playback and export; the
+  analysis jobs use linear interpolation.
 
 ## Timeline thumbnails
 

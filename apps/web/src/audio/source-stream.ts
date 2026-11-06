@@ -1,6 +1,6 @@
 import { AudioSampleSink, type InputAudioTrack } from 'mediabunny';
 import type { AudioStream } from './mixer';
-import { Resampler, type Gain } from './resampler';
+import { Resampler, type Gain, type ResampleQuality } from './resampler';
 import { TimeStretcher } from './time-stretch';
 
 /** Resampled frames handed to the time stretcher at a time. */
@@ -22,9 +22,10 @@ export class SourceStream implements AudioStream {
     private readonly startSeconds: number,
     outputRate: number,
     speed = 1,
+    quality: ResampleQuality = 'linear',
   ) {
     this.iterator = new AudioSampleSink(track).samples(startSeconds);
-    this.resampler = new Resampler(track.sampleRate / outputRate);
+    this.resampler = new Resampler(track.sampleRate / outputRate, quality);
     this.stretcher = speed === 1 ? null : new TimeStretcher(speed, outputRate);
   }
 
@@ -90,8 +91,13 @@ export class SourceStream implements AudioStream {
 
 /** Builds a mixer stream factory over a set of decodable audio tracks. */
 export const streamsFrom =
-  (tracks: ReadonlyMap<string, InputAudioTrack>, outputRate: number) =>
+  (
+    tracks: ReadonlyMap<string, InputAudioTrack>,
+    outputRate: number,
+    /** Playback and export use 'sinc' (what you hear is what you export); analysis may use 'linear'. */
+    quality: ResampleQuality = 'linear',
+  ) =>
   (assetId: string, sourceSeconds: number, speed: number): SourceStream | null => {
     const track = tracks.get(assetId);
-    return track ? new SourceStream(track, sourceSeconds, outputRate, speed) : null;
+    return track ? new SourceStream(track, sourceSeconds, outputRate, speed, quality) : null;
   };
