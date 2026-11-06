@@ -176,7 +176,7 @@ function validate(raw: Record<string, unknown>): ProjectDocument {
   };
 }
 
-function validateLut(value: unknown, index: number): ProjectLut {
+export function validateLut(value: unknown, index: number): ProjectLut {
   const ok =
     isRecord(value) &&
     isNonEmptyString(value.id) &&
