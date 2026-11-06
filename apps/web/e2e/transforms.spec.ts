@@ -77,6 +77,65 @@ test.describe('transforms', () => {
     expect(await editor.sliderValue('Position X')).toBe(78.5);
   });
 
+  /** Drag a preview handle to a point given in fractions of the preview. */
+  const dragHandle = async (
+    name: string,
+    to: [number, number],
+    { shift = false, cancel = false } = {},
+  ) => {
+    const handle = await editor.page.getByLabel(name, { exact: true }).boundingBox();
+    const frame = await editor.page.locator('.preview-frame canvas').boundingBox();
+    if (!handle || !frame) throw new Error('Handle or preview is not visible');
+    const mouse = editor.page.mouse;
+    await mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await mouse.down();
+    if (shift) await editor.page.keyboard.down('Shift');
+    await mouse.move(frame.x + frame.width * to[0], frame.y + frame.height * to[1], { steps: 8 });
+    if (cancel) await editor.press('Escape');
+    await mouse.up();
+    if (shift) await editor.page.keyboard.up('Shift');
+  };
+
+  test('a corner handle resizes the clip about its centre, in one undo step', async () => {
+    // The red clip fills the frame: halving the corner's distance from the centre halves it.
+    await dragHandle('Resize from the bottom right corner', [0.75, 0.75]);
+    const scale = await editor.sliderValue('Scale');
+    expect(scale).toBeGreaterThanOrEqual(48); // the pointer lands on whole pixels
+    expect(scale).toBeLessThanOrEqual(52);
+    expect(await editor.sliderValue('Position X')).toBe(50); // still centred
+
+    const path = await editor.exportTo(test.info().outputDir, { resolution: '720p', fps: 30 });
+    // Half size, centred: covers x 320-960, y 180-540.
+    expect(isRed(averageRgb(frameRgb(path, 1.5, region(560, 300, 160, 120))))).toBe(true);
+    expect(isRed(averageRgb(frameRgb(path, 1.5, region(40, 40, 160, 100))))).toBe(false);
+
+    await editor.press('Control+z');
+    expect(await editor.sliderValue('Scale')).toBe(100);
+    await dragHandle('Resize from the top left corner', [0.1, 0.1], { cancel: true });
+    expect(await editor.sliderValue('Scale')).toBe(100);
+  });
+
+  test('the round handle rotates the clip; Shift snaps to 15°', async () => {
+    // A full-frame clip's rotate handle sits just inside its top edge. Dragging it
+    // from straight above the centre to straight right of it is a quarter turn.
+    await dragHandle('Rotate', [0.8, 0.5]);
+    expect(await editor.sliderValue('Rotation')).toBe(90);
+
+    await editor.press('Control+z');
+    expect(await editor.sliderValue('Rotation')).toBe(0);
+    // Up and a little left of straight right: about 84° unsnapped, 90° snapped.
+    await dragHandle('Rotate', [0.8, 0.45], { shift: true });
+    expect(await editor.sliderValue('Rotation')).toBe(90);
+  });
+
+  test('no handles for a title, or when the selected clip is off screen', async () => {
+    await expect(editor.page.getByLabel('Rotate', { exact: true })).toBeVisible();
+    await editor.seekTo(4); // the red clip ends at 3 s
+    await expect(editor.page.getByLabel('Rotate', { exact: true })).toHaveCount(0);
+    await editor.addTitle('Hello'); // selects the new title
+    await expect(editor.page.getByLabel('Rotate', { exact: true })).toHaveCount(0);
+  });
+
   test('reset restores the original placement', async () => {
     await editor.page.getByRole('button', { name: 'Picture in picture, top left' }).click();
     await editor.page.getByRole('button', { name: 'Reset transform' }).click();
