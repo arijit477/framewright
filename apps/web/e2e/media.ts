@@ -202,3 +202,38 @@ export function mp4Boxes(path: string): string[] {
   }
   return boxes;
 }
+
+/**
+ * The largest jump between neighbouring samples in a stretch of a file's
+ * audio (mono, 48 kHz, full scale = 1). A smooth tone moves by a small,
+ * steady amount per sample; a sound cut off mid-wave jumps: a click.
+ */
+export function maxStep(path: string, from: number, duration: number): number {
+  const raw = execFileSync(
+    'ffmpeg',
+    [
+      '-v',
+      'error',
+      '-ss',
+      String(from),
+      '-t',
+      String(duration),
+      '-i',
+      path,
+      '-vn',
+      '-ac',
+      '1',
+      '-ar',
+      '48000',
+      '-f',
+      'f32le',
+      '-',
+    ],
+    { maxBuffer: 64 * 1024 * 1024 },
+  );
+  const samples = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+  let max = 0;
+  for (let i = 1; i < samples.length; i++)
+    max = Math.max(max, Math.abs(samples[i]! - samples[i - 1]!));
+  return max;
+}

@@ -1256,7 +1256,37 @@ fn audio_segment(track: &Track, index: usize, clip: &Clip) -> AudioSegment {
             fade(cut - half, cut + late, FadeCurve::EqualPower)
         });
     }
+    // Hard cuts: a sound that starts or stops mid-waveform clicks. A few
+    // milliseconds of fade remove the click without being heard as a fade,
+    // except where the sound simply carries on (the halves of a split clip).
+    let declick = DECLICK.min(clip.duration / 2);
+    if segment.fade_in.is_none() && !(index > 0 && seamless(&track.clips[index - 1], clip)) {
+        segment.fade_in = Some(fade(clip.start, clip.start + declick, FadeCurve::Linear));
+    }
+    if segment.fade_out.is_none()
+        && !track
+            .clips
+            .get(index + 1)
+            .is_some_and(|next| seamless(clip, next))
+    {
+        segment.fade_out = Some(fade(clip.end() - declick, clip.end(), FadeCurve::Linear));
+    }
     segment
+}
+
+/// Length of the fades that stop hard cuts from clicking (5 ms).
+pub const DECLICK: Micros = 5_000;
+
+/// Whether `next` carries on `prev`'s sound exactly: touching, the same media at
+/// the same speed and level, continuing where `prev` leaves off (a split clip).
+fn seamless(prev: &Clip, next: &Clip) -> bool {
+    prev.end() == next.start
+        && prev.asset_id == next.asset_id
+        && prev.speed_percent == next.speed_percent
+        && prev.volume_percent == next.volume_percent
+        && !prev.muted
+        && !next.muted
+        && prev.source_end() == next.source_in
 }
 
 fn is_dip(incoming: &Clip) -> bool {
@@ -1765,7 +1795,12 @@ mod tests {
             sb.fade_in,
             Some(fade(5_500_000, 6_500_000, FadeCurve::EqualPower))
         );
-        assert_eq!((sa.fade_in, sb.fade_out), (None, None));
+        // Their outer edges are hard cuts: only the click-removing fades.
+        assert_eq!(sa.fade_in, Some(fade(0, DECLICK, FadeCurve::Linear)));
+        assert_eq!(
+            sb.fade_out,
+            Some(fade(9 * S - DECLICK, 9 * S, FadeCurve::Linear))
+        );
     }
 
     #[test]
@@ -1810,14 +1845,17 @@ mod tests {
     }
 
     #[test]
-    fn no_fades_without_an_active_transition_and_muting_still_fades_the_other_side() {
+    fn no_transition_fades_without_an_active_transition_and_muting_still_fades_the_other_side() {
         let (mut tl, _, a, b) = two_clips();
         tl.set_clip_transition(b, Some(crossfade(1000))).unwrap();
         tl.move_clip(b, 7 * S, None).unwrap(); // apart: inactive
+        let is_declick = |f: Option<AudioFade>| {
+            f.is_some_and(|f| f.end - f.start == DECLICK && f.curve == FadeCurve::Linear)
+        };
         assert!(tl
             .audio_segments(0, 10 * S)
             .iter()
-            .all(|s| s.fade_in.is_none() && s.fade_out.is_none()));
+            .all(|s| is_declick(s.fade_in) && is_declick(s.fade_out)));
         tl.move_clip(b, 6 * S, None).unwrap();
         tl.set_clip_muted(a, true).unwrap();
         let segments = tl.audio_segments(0, 10 * S);
@@ -1826,6 +1864,42 @@ mod tests {
             segments[0].fade_in.is_some(),
             "b still fades in under the picture"
         );
+    }
+
+    #[test]
+    fn hard_cuts_get_short_fades_but_a_split_clip_plays_on_seamlessly() {
+        let (mut tl, _, a, b) = two_clips(); // a: 0-6 s, b: 6-9 s (different media)
+        let segments = tl.audio_segments(0, 10 * S);
+        // A hard cut between different sounds: a fades out, b fades in, over 5 ms.
+        assert_eq!(
+            fade_of(&segments, a),
+            (
+                Some(fade(0, DECLICK, FadeCurve::Linear)),
+                Some(fade(6 * S - DECLICK, 6 * S, FadeCurve::Linear))
+            )
+        );
+        assert_eq!(
+            fade_of(&segments, b).0,
+            Some(fade(6 * S, 6 * S + DECLICK, FadeCurve::Linear))
+        );
+
+        // Split a: the halves carry on the same sound, so no dip at the split...
+        let right = tl.split_clip(a, 2 * S).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        assert_eq!(fade_of(&segments, a).1, None);
+        assert_eq!(fade_of(&segments, right).0, None);
+        // ...but a different level on one half is a step, so it fades.
+        tl.set_clip_volume(right, 50).unwrap();
+        let segments = tl.audio_segments(0, 10 * S);
+        assert!(fade_of(&segments, a).1.is_some());
+        assert!(fade_of(&segments, right).0.is_some());
+
+        // The shortest clip (10 ms): the fades meet in the middle, never overlap.
+        let mut tl = Timeline::new();
+        let track = tl.add_track(TrackKind::Audio);
+        let tiny = tl.add_clip(track, "t", 0, MIN_CLIP_DURATION, 0, S).unwrap();
+        let (fade_in, fade_out) = fade_of(&tl.audio_segments(0, S), tiny);
+        assert!(fade_in.unwrap().end <= fade_out.unwrap().start);
     }
 
     #[test]
