@@ -1,4 +1,5 @@
-import type { FontFamily, TextContent, TextStyle, WordTiming } from '../engine/types';
+import type { TextContent, TextStyle, WordTiming } from '../engine/types';
+import { FONT_STACKS } from './fonts';
 
 /**
  * Text overlay rendering, shared by every compositor and by export, so a title
@@ -16,17 +17,6 @@ const LINE_HEIGHT = 1.2;
 /** Background box padding, in ems. */
 const BOX_PADDING_X = 0.4;
 export const BOX_PADDING_Y = 0.15;
-
-/**
- * Generic font stacks. Exports must render with fonts available inside
- * workers, so these use installed system fonts with a CSS generic fallback.
- */
-export const FONT_STACKS: Record<FontFamily, string> = {
-  sans: 'system-ui, "Helvetica Neue", Arial, sans-serif',
-  serif: 'Georgia, "Times New Roman", serif',
-  mono: 'ui-monospace, Menlo, Consolas, monospace',
-  handwriting: '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive',
-};
 
 export function cssFont(style: TextStyle, px: number): string {
   return `${style.italic ? 'italic ' : ''}${style.bold ? '700' : '400'} ${px}px ${FONT_STACKS[style.font]}`;

@@ -11,11 +11,13 @@ import { openAsset, toMicros } from '../media/asset';
 import { StillReader } from '../media/still';
 import { drawItems } from './compose';
 import { createCompositor, type Compositor } from './compositor';
+import { textRuns } from './fonts';
 import { FrameReader, type SampleReader } from './frame-reader';
 import type { Lut } from './lut';
 import { ReaderPool } from './reader-pool';
 import { compositionSize, DEFAULT_ASPECT } from '../lib/aspect';
 import type { FromWorker, ToWorker } from './protocol';
+import { threadFonts } from './thread-fonts';
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
@@ -25,6 +27,8 @@ const scope = self as unknown as WorkerScope;
 const send = (message: FromWorker) => scope.postMessage(message);
 
 let compositor: Compositor | null = null;
+/** Bundled fonts, loaded as titles first use them. */
+const fonts = threadFonts();
 let canvas: OffscreenCanvas | null = null;
 /** Applied when the canvas arrives, if a resize comes first. */
 let size = compositionSize(DEFAULT_ASPECT);
@@ -142,6 +146,8 @@ async function drain() {
       pending = null;
       const started = performance.now();
       const items = await drawItems(layers, readers, luts, matteFailed);
+      // The first frame with a new font (or new characters) waits for its files.
+      await fonts?.ready(textRuns(items));
       compositor.draw(items);
       for (const item of items) if (item.kind === 'video') item.mask?.close();
       send({ type: 'rendered', requestId, ms: performance.now() - started });

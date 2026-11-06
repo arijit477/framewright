@@ -23,6 +23,8 @@ pub enum FontFamily {
     Serif,
     Mono,
     Handwriting,
+    /// A condensed, all-caps headline face.
+    Display,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +228,18 @@ mod tests {
     #[test]
     fn default_title_is_valid() {
         assert_eq!(content("Hello").validate(), Ok(()));
+    }
+
+    #[test]
+    fn font_families_use_camel_case_names() {
+        for (font, name) in [
+            (FontFamily::Sans, "\"sans\""),
+            (FontFamily::Handwriting, "\"handwriting\""),
+            (FontFamily::Display, "\"display\""),
+        ] {
+            assert_eq!(serde_json::to_string(&font).unwrap(), name);
+            assert_eq!(serde_json::from_str::<FontFamily>(name).unwrap(), font);
+        }
     }
 
     #[test]
