@@ -30,7 +30,7 @@ leaves your machine.
   other languages on the device (OPUS-MT), optionally showing both languages at once, and save
   them as .srt or .vtt (one language, or both in one file)
 - Transforms: position, scale, rotation and opacity for any video clip, picture-in-picture
-  presets, and dragging clips or titles directly on the preview
+  presets, and moving clips or titles, resizing and rotating clips, directly on the preview
 - Filters: temperature, tint, brightness, contrast and saturation per clip, with one-click looks
   (black & white, warm, cool, moody…), identical in preview and export
 - LUTs: load `.cube` looks (from DaVinci Resolve, Premiere and others), with adjustable intensity;

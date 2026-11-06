@@ -89,7 +89,7 @@ body,
   max-width: 100%;
   background: #000;
   border-radius: 6px;
-  overflow: hidden;
+  /* Not clipped: resize handles at the frame's corners stick out a little. */
   box-shadow: 0 0 0 1px var(--border);
 }
 
@@ -97,6 +97,43 @@ body,
   width: 100%;
   height: 100%;
   display: block;
+  border-radius: 6px;
+}
+
+.transform-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* only the handles themselves take the pointer */
+}
+
+.transform-handles svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.transform-handles polygon {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.transform-handles .handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: nwse-resize;
+}
+
+.transform-handles .handle.rotate {
+  border-radius: 50%;
+  cursor: grab;
 }
 
 .preview-empty {

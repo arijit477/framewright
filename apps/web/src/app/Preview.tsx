@@ -22,6 +22,7 @@ import {
   writeTransform,
 } from '../store/editor';
 import { roundTransform } from '../lib/keyframes';
+import { TransformHandles } from './TransformHandles';
 
 /** Canvases already handed to the worker (React StrictMode mounts effects twice). */
 const attached = new WeakSet<HTMLCanvasElement>();
@@ -44,6 +45,7 @@ interface Drag {
 
 export function Preview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const hasClips = useEditor((s) => s.duration > 0);
   const importing = useEditor((s) => s.importing > 0);
@@ -133,6 +135,7 @@ export function Preview() {
   return (
     <div className="preview">
       <div
+        ref={frameRef}
         className="preview-frame"
         data-aspect={aspect}
         style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
@@ -147,6 +150,7 @@ export function Preview() {
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
         />
+        <TransformHandles frame={frameRef} />
         {!hasClips && (
           <div className="preview-empty">
             {importing ? 'Importing…' : 'Import or drop a video to get started'}
