@@ -308,12 +308,17 @@ export class EditorPage {
     await expect(this.page.locator('.project-name')).toContainText(name);
   }
 
-  /** Names of files in a folder of browser storage (OPFS); empty if it doesn't exist. */
+  /**
+   * Names of entries in a folder of browser storage (OPFS), e.g. `exports` or
+   * `projects/<id>/thumbnails`; empty if it doesn't exist.
+   */
   async storedFiles(folder: string): Promise<string[]> {
-    return this.page.evaluate(async (name) => {
+    return this.page.evaluate(async (path) => {
       const root = await navigator.storage.getDirectory();
       try {
-        const dir = await root.getDirectoryHandle(name);
+        let dir = root;
+        for (const name of path.split('/').filter(Boolean))
+          dir = await dir.getDirectoryHandle(name);
         const names: string[] = [];
         for await (const [entry] of dir.entries()) names.push(entry);
         return names;

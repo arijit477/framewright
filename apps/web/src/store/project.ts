@@ -24,6 +24,7 @@ import {
   historySnapshot,
   loadProject,
   restoreHistory,
+  thumbnails,
   notify,
   relinkAsset,
   snapshotProject,
@@ -139,6 +140,8 @@ export async function openProject(id: string, { quiet = false } = {}): Promise<b
         if (file) files.set(asset.id, file);
       }),
     );
+    // Filmstrips made before come from the project's cache instead of decoding again.
+    thumbnails.setCache(storage.thumbnailCache(id));
     await loadProject({ timeline: doc.timeline, assets: doc.assets, luts: doc.luts, files });
     await restoreSavedHistory(id);
     releaseLock = release;
@@ -166,6 +169,7 @@ export async function newProject(): Promise<void> {
   await closeCurrent();
   const doc = createProject(crypto.randomUUID(), new Date());
   releaseLock = await acquireLock(doc.id);
+  thumbnails.setCache(storage?.thumbnailCache(doc.id) ?? null);
   await loadProject({ timeline: null, assets: [], luts: [], files: new Map() });
   scheduler.reset();
   set({
@@ -455,6 +459,7 @@ async function storeMedia(assetId: string, file: File) {
 
 async function closeCurrent() {
   await scheduler.flush();
+  thumbnails.setCache(null);
   releaseLock?.();
   releaseLock = null;
 }

@@ -277,6 +277,13 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Cached filmstrips
+
+See [ADR 0036](./adr/0036-thumbnail-cache.md). The `ThumbnailClient` keeps finished strips in the
+open project's `thumbnails` folder (`ProjectStorage.thumbnailCache`): a WebP sprite plus a
+description (file size, modification time, cache version). On opening, a matching strip is cut
+from the sprite instead of decoding the video again.
+
 ## Undo history across reloads
 
 See [ADR 0035](./adr/0035-undo-history-across-reloads.md). Each autosave also writes the editor's
