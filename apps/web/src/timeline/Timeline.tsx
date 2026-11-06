@@ -18,6 +18,7 @@ import {
   type EditorState,
 } from '../store/editor';
 import type { ThumbnailStrip } from '../thumbnails/client';
+import { detailKey, detailLevel } from '../thumbnails/detail';
 import { indexAt, layoutTiles, nearestLoaded } from '../thumbnails/strip';
 import { TrackList } from './TrackList';
 import {
@@ -625,6 +626,7 @@ function drawClip(
   const strip = !missing && !isAudio ? thumbnails.strip(clip.assetId) : undefined;
   const filmstrip = strip !== undefined && strip.loaded > 0;
   if (filmstrip) {
+    const asset = assets[clip.assetId];
     drawFilmstrip(ctx, strip, {
       left,
       right,
@@ -633,6 +635,14 @@ function drawClip(
       viewportWidth: width,
       sourceAtX,
       selected,
+      // A still image's one picture is exact at any zoom: no finer thumbnails.
+      detail: asset?.still
+        ? undefined
+        : {
+            durationUs: asset?.durationUs ?? 0,
+            at: (spacing, key) => thumbnails.detail(clip.assetId, spacing, key),
+            request: (spacing, keys) => thumbnails.requestDetail(clip.assetId, spacing, keys),
+          },
     });
   }
   if (selected) {
@@ -860,12 +870,20 @@ interface FilmstripArea {
   /** Source time (µs) shown at a given x. */
   sourceAtX: (x: number) => number;
   selected: boolean;
+  /** Finer thumbnails when zoomed in (thumbnails/detail.ts); none for stills. */
+  detail?: {
+    durationUs: number;
+    at: (spacingUs: number, keyUs: number) => ImageBitmap | undefined;
+    request: (spacingUs: number, keysUs: number[]) => void;
+  };
 }
 
 /**
  * Tile a clip with thumbnails (only the visible tiles), using the nearest
  * loaded one while the strip is still filling in, then shade the top and
- * bottom so the name and waveform stay legible.
+ * bottom so the name and waveform stay legible. Zoomed in far enough that
+ * neighbouring tiles would repeat a picture, finer thumbnails are used where
+ * they've arrived, and the missing ones are asked for.
  */
 function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, area: FilmstripArea) {
   const { left, right, top, height } = area;
@@ -874,6 +892,10 @@ function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, are
   roundRect(ctx, left, top, right - left, height, 6);
   ctx.clip();
   ctx.imageSmoothingQuality = 'high';
+  const { detail } = area;
+  const tileUs = Math.abs(area.sourceAtX(left + tileWidth) - area.sourceAtX(left));
+  const spacing = detail ? detailLevel(tileUs, strip.intervalUs) : null;
+  const missingDetail = new Set<number>();
   for (const tile of layoutTiles({
     clipLeft: left,
     clipRight: right,
@@ -881,13 +903,26 @@ function drawFilmstrip(ctx: CanvasRenderingContext2D, strip: ThumbnailStrip, are
     viewportWidth: area.viewportWidth,
     sourceAt: area.sourceAtX,
   })) {
-    const index = nearestLoaded(
-      indexAt(tile.sourceUs, strip.intervalUs, strip.count),
-      (i) => strip.bitmaps[i] !== undefined,
-      strip.count,
-    );
-    const bitmap = index >= 0 ? strip.bitmaps[index] : undefined;
+    let bitmap: ImageBitmap | undefined;
+    if (detail && spacing !== null) {
+      const key = detailKey(tile.sourceUs, spacing);
+      if (key < detail.durationUs) {
+        bitmap = detail.at(spacing, key);
+        if (!bitmap) missingDetail.add(key);
+      }
+    }
+    if (!bitmap) {
+      const index = nearestLoaded(
+        indexAt(tile.sourceUs, strip.intervalUs, strip.count),
+        (i) => strip.bitmaps[i] !== undefined,
+        strip.count,
+      );
+      bitmap = index >= 0 ? strip.bitmaps[index] : undefined;
+    }
     if (bitmap) ctx.drawImage(bitmap, tile.x, top, tileWidth, height);
+  }
+  if (detail && spacing !== null && missingDetail.size > 0) {
+    detail.request(spacing, [...missingDetail]);
   }
   const shadeTop = ctx.createLinearGradient(0, top, 0, top + 22);
   shadeTop.addColorStop(0, 'rgba(0,0,0,0.6)');
