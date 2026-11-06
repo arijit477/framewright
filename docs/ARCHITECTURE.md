@@ -462,6 +462,9 @@ See [ADR 0012](./adr/0012-transitions.md).
   slide and wipe, extending each sound past the cut only as far as its media goes; linear ramps
   to and from the cut for a dip), and the shared mixer applies them per frame, so playback and
   export match.
+- **Hard cuts** ([ADR 0033](./adr/0033-declick-hard-cuts.md)): every other edge of a clip's
+  sound gets a 5 ms linear fade (`DECLICK`) so it doesn't click, except a seamless join, such as
+  the halves of a split clip.
 
 ## Timeline thumbnails
 

@@ -20,7 +20,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 - [x] **Audio**: decode, AudioWorklet mixer, waveform drawing, per-clip volume and mute
 - [x] **Audio master clock** for A/V sync during playback
 - [x] Audio-only files (MP3, WAV, M4A, OGG, FLAC) on an audio track; output level meter
-- [ ] Short fades at clip edges to avoid clicks on hard cuts
+- [x] Short fades at clip edges to avoid clicks on hard cuts (5 ms; none inside a split clip)
 - [ ] Higher-quality resampling for export (windowed sinc)
 - [x] **Export** to MP4 (H.264 + AAC/Opus) and WebM (VP9/Opus): 480p–4K, 24–60 fps, progress, ETA, cancel
 - [x] Stream exports straight to disk (Save dialog on Chrome/Edge, browser storage elsewhere)
