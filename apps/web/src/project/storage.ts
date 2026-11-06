@@ -6,6 +6,7 @@ import {
   type ProjectDocument,
   type ProjectSummary,
 } from './document';
+import type { ThumbnailCache } from '../thumbnails/cache';
 
 /**
  * Project persistence in the Origin Private File System (OPFS): fast,
@@ -74,6 +75,48 @@ export class ProjectStorage {
       await writable.abort().catch(() => {});
       throw error;
     }
+  }
+
+  /**
+   * Finished filmstrips for a project's media, kept in its `thumbnails`
+   * folder (a WebP sprite and a description per asset). Deleted with the project.
+   */
+  thumbnailCache(projectId: string): ThumbnailCache {
+    const folder = async (create: boolean) =>
+      (await this.projectDir(projectId, create)).getDirectoryHandle('thumbnails', { create });
+    return {
+      read: async (assetId) => {
+        assertSafeId(assetId);
+        try {
+          const dir = await folder(false);
+          const info: unknown = JSON.parse(
+            await (await (await dir.getFileHandle(`${assetId}.json`)).getFile()).text(),
+          );
+          const sprite = await (await dir.getFileHandle(`${assetId}.webp`)).getFile();
+          return { info, sprite };
+        } catch {
+          return null;
+        }
+      },
+      write: async (assetId, info, sprite) => {
+        assertSafeId(assetId);
+        const dir = await folder(true);
+        // The image first, then its description: a description only exists for a whole image.
+        for (const [name, data] of [
+          [`${assetId}.webp`, sprite],
+          [`${assetId}.json`, JSON.stringify(info)],
+        ] as const) {
+          const writable = await (await dir.getFileHandle(name, { create: true })).createWritable();
+          try {
+            await writable.write(data);
+            await writable.close();
+          } catch (error) {
+            await writable.abort().catch(() => {});
+            throw error;
+          }
+        }
+      },
+    };
   }
 
   /** The saved undo history (`history.json`), or null if there is none. */
