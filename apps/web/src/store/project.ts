@@ -17,10 +17,13 @@ import {
   readBackup,
 } from '../project/backup';
 import { flushPendingEdits } from '../lib/pending-edits';
+import { fingerprint, parseHistory, serializeHistory, trimHistory } from '../project/history';
 import { SaveScheduler, type SaveState } from '../project/save-scheduler';
 import { ProjectStorage, storageEstimate } from '../project/storage';
 import {
+  historySnapshot,
   loadProject,
+  restoreHistory,
   notify,
   relinkAsset,
   snapshotProject,
@@ -137,6 +140,7 @@ export async function openProject(id: string, { quiet = false } = {}): Promise<b
       }),
     );
     await loadProject({ timeline: doc.timeline, assets: doc.assets, luts: doc.luts, files });
+    await restoreSavedHistory(id);
     releaseLock = release;
     scheduler.reset();
     set({
@@ -396,6 +400,39 @@ async function saveNow(): Promise<void> {
     luts,
   };
   await storage.write(doc);
+  await saveHistory(current.id);
+}
+
+/** The history revision last written, per project, so unchanged history isn't rewritten. */
+let savedHistory: { projectId: string; revision: number } | null = null;
+
+/**
+ * Save the undo history beside the project, if it changed. Best effort: a
+ * failure here mustn't fail the project save (the work itself is safe).
+ */
+async function saveHistory(projectId: string): Promise<void> {
+  if (!storage) return;
+  const history = historySnapshot();
+  if (savedHistory?.projectId === projectId && savedHistory.revision === history.revision) return;
+  try {
+    const { undo, redo } = trimHistory(history.undo, history.redo);
+    await storage.writeHistory(
+      projectId,
+      serializeHistory({ current: fingerprint(history.current), undo, redo, luts: history.luts }),
+    );
+    savedHistory = { projectId, revision: history.revision };
+  } catch (error) {
+    console.warn('Undo history not saved', error);
+  }
+}
+
+/** Put back the undo history saved with a project, if it belongs to the timeline just opened. */
+async function restoreSavedHistory(projectId: string): Promise<void> {
+  if (!storage) return;
+  const history = parseHistory((await storage.readHistory(projectId)) ?? '');
+  if (!history || history.current !== fingerprint(historySnapshot().current)) return;
+  restoreHistory(history);
+  savedHistory = { projectId, revision: historySnapshot().revision };
 }
 
 /** Copy an imported file into the project so it's there after a reload. */

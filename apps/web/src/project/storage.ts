@@ -76,6 +76,30 @@ export class ProjectStorage {
     }
   }
 
+  /** The saved undo history (`history.json`), or null if there is none. */
+  async readHistory(projectId: string): Promise<string | null> {
+    try {
+      const dir = await this.projectDir(projectId, false);
+      return await (await (await dir.getFileHandle('history.json')).getFile()).text();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Replace the saved undo history (written atomically, like the project file). */
+  async writeHistory(projectId: string, text: string): Promise<void> {
+    const dir = await this.projectDir(projectId, true);
+    const handle = await dir.getFileHandle('history.json', { create: true });
+    const writable = await handle.createWritable();
+    try {
+      await writable.write(text);
+      await writable.close();
+    } catch (error) {
+      await writable.abort().catch(() => {});
+      throw error;
+    }
+  }
+
   async remove(projectId: string): Promise<void> {
     assertSafeId(projectId);
     await this.root.removeEntry(projectId, { recursive: true });

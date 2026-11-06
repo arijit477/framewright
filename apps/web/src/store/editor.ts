@@ -139,6 +139,8 @@ const assetFiles = new Map<string, File>();
 
 const undoStack: string[] = [];
 const redoStack: string[] = [];
+/** Bumped whenever the history changes, so saving it can be skipped when it hasn't. */
+let historyRevision = 0;
 
 const listeners = new Set<(event: EditorEvent) => void>();
 export function subscribeEditor(listener: (event: EditorEvent) => void): () => void {
@@ -218,6 +220,7 @@ export function edit(operation: (engine: TimelineEngine) => void): boolean {
   undoStack.push(before);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack.length = 0;
+  historyRevision++;
   refresh();
   emit({ type: 'changed' });
   return true;
@@ -228,6 +231,7 @@ export function undo() {
   const previous = undoStack.pop();
   if (previous === undefined) return;
   redoStack.push(e.save());
+  historyRevision++;
   e.load(previous);
   refresh();
   keepSelectionIfPresent();
@@ -239,6 +243,7 @@ export function redo() {
   const next = redoStack.pop();
   if (next === undefined) return;
   undoStack.push(e.save());
+  historyRevision++;
   e.load(next);
   refresh();
   keepSelectionIfPresent();
@@ -372,6 +377,41 @@ export async function relinkAsset(id: string, file: File): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------- project state
+
+/**
+ * The undo history, for saving with the project: the snapshots, the timeline
+ * they lead to, and removed LUTs that earlier steps still use. `revision`
+ * changes whenever any of it does.
+ */
+export function historySnapshot() {
+  const e = requireEngine();
+  const steps = [...undoStack, ...redoStack];
+  const luts = [...removedLuts.values()].filter((lut) =>
+    steps.some((step) => step.includes(`"lutId":"${lut.id}"`)),
+  );
+  return {
+    revision: historyRevision,
+    current: e.save(),
+    undo: [...undoStack],
+    redo: [...redoStack],
+    luts,
+  };
+}
+
+/**
+ * Put back a saved history (after opening a project). The caller has checked
+ * that it leads to the timeline now open.
+ */
+export function restoreHistory(history: {
+  undo: readonly string[];
+  redo: readonly string[];
+  luts: readonly ProjectLut[];
+}) {
+  undoStack.splice(0, undoStack.length, ...history.undo.slice(-MAX_HISTORY));
+  redoStack.splice(0, redoStack.length, ...history.redo.slice(-MAX_HISTORY));
+  for (const lut of history.luts) if (!get().luts[lut.id]) removedLuts.set(lut.id, lut);
+  set({ canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 });
+}
 
 /** Everything the project file needs from the editor. */
 export function snapshotProject() {
@@ -527,6 +567,7 @@ export async function loadProject(project: {
   assetFiles.clear();
   undoStack.length = 0;
   redoStack.length = 0;
+  historyRevision++;
   if (json) {
     e.load(json);
   } else {
@@ -1369,6 +1410,7 @@ export function endGesture(): void {
   undoStack.push(before);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack.length = 0;
+  historyRevision++;
   refresh();
   emit({ type: 'changed' });
 }

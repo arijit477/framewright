@@ -277,6 +277,13 @@ See [ADR 0018](./adr/0018-multi-select-and-clipboard.md).
   mute, colour). Each change patches only that setting on every clip in one undo step; values that
   differ read "Mixed".
 
+## Undo history across reloads
+
+See [ADR 0035](./adr/0035-undo-history-across-reloads.md). Each autosave also writes the editor's
+undo and redo snapshots (`historySnapshot`) to `history.json` when they changed, trimmed to 8 MB,
+with a fingerprint of the timeline they lead to and any removed LUTs they still use. Opening a
+project restores them (`restoreHistory`) only if the fingerprint matches.
+
 ## Image clips
 
 See [ADR 0032](./adr/0032-image-clips.md). `openAsset` recognises still images and decodes them
