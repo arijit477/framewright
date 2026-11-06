@@ -10,7 +10,14 @@ import type { VideoSample, VideoSampleSink } from 'mediabunny';
  *
  * The reader owns the sample it returns; callers must not close it.
  */
-export class FrameReader {
+/** Where draw items get their pictures: video (decoded on demand) or a still. */
+export interface SampleReader {
+  /** The picture at `seconds` in the source, or null past the end. Owned by the reader. */
+  frameAt(seconds: number): Promise<VideoSample | null>;
+  dispose(): Promise<void>;
+}
+
+export class FrameReader implements SampleReader {
   /** Forward jumps larger than this restart the iterator instead of decoding through. */
   private static readonly MAX_FORWARD_DECODE_S = 1.5;
 

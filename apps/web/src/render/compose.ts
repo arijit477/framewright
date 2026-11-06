@@ -3,7 +3,7 @@ import type { DrawItem } from './compositor';
 import { NEUTRAL_COLOR } from './color';
 import type { Lut } from './lut';
 import { transitionEffect } from './transition';
-import type { FrameReader } from './frame-reader';
+import type { SampleReader } from './frame-reader';
 import type { ReaderPool } from './reader-pool';
 
 /**
@@ -13,7 +13,7 @@ import type { ReaderPool } from './reader-pool';
  */
 export async function drawItems(
   layers: Layer[],
-  readers: ReaderPool<FrameReader>,
+  readers: ReaderPool<SampleReader>,
   luts: ReadonlyMap<string, Lut> = new Map(),
   /** Background removal couldn't run (e.g. the model didn't download): the frame is drawn whole. */
   onMatteError?: (message: string) => void,

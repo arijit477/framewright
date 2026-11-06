@@ -31,6 +31,7 @@ import { bilingualStyles } from '../captions/bilingual';
 import { wrapLines, type Caption } from '../captions/segments';
 import { combineCues, type CaptionCue } from '../captions/srt';
 import { aspectOf, compositionSize } from '../lib/aspect';
+import { isStillFile, STILL_DURATION_US } from '../media/still';
 import { cleanLutName, lutUsage } from '../lib/luts';
 import { NEUTRAL_COLOR } from '../render/color';
 import { formatTimecode, framesToMicros, microsToFrames } from '../lib/time';
@@ -270,19 +271,25 @@ export function notify(kind: 'error' | 'info', text: string) {
 const MEDIA_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|mp3|m4a|aac|wav|ogg|opus|flac)$/i;
 
 const isMedia = (f: File) =>
-  f.type.startsWith('video/') || f.type.startsWith('audio/') || MEDIA_EXTENSIONS.test(f.name);
+  f.type.startsWith('video/') ||
+  f.type.startsWith('audio/') ||
+  MEDIA_EXTENSIONS.test(f.name) ||
+  isStillFile(f);
 
 /**
  * Probe a file in both workers (in parallel) and describe it. The workers keep
  * their decoders for `id`, so the asset is playable as soon as this resolves.
  */
 async function probeAsset(id: string, file: File): Promise<EditorAsset> {
+  const still = isStillFile(file);
   const [visual, sound] = await Promise.all([
     renderer.addAsset(id, file),
-    audio.addAsset(id, file).catch((error: unknown) => {
-      notify('error', `${file.name}: audio could not be read (${String(error)})`);
-      return { hasAudio: false, durationUs: 0 };
-    }),
+    still
+      ? { hasAudio: false, durationUs: 0 } // an image has no sound
+      : audio.addAsset(id, file).catch((error: unknown) => {
+          notify('error', `${file.name}: audio could not be read (${String(error)})`);
+          return { hasAudio: false, durationUs: 0 };
+        }),
   ]);
   if (!visual.hasVideo && !sound.hasAudio) throw new Error('no playable video or audio found');
   if (visual.hasVideo) thumbnails.request(id, file);
@@ -299,6 +306,7 @@ async function probeAsset(id: string, file: File): Promise<EditorAsset> {
     hasAudio: sound.hasAudio,
     // Video length decides a video clip; audio-only files use the audio length.
     durationUs: visual.hasVideo ? visual.durationUs : sound.durationUs,
+    ...(visual.still ? { still: true } : {}),
     missing: false,
   };
 }
@@ -306,7 +314,10 @@ async function probeAsset(id: string, file: File): Promise<EditorAsset> {
 export async function importFiles(files: Iterable<File>) {
   const media = [...files].filter(isMedia);
   if (media.length === 0) {
-    notify('error', 'Please choose a video or audio file (MP4, WebM, MOV, MKV, MP3, WAV, …).');
+    notify(
+      'error',
+      'Please choose a video, audio or image file (MP4, WebM, MOV, MP3, WAV, PNG, JPEG, …).',
+    );
     return;
   }
   for (const file of media) {
@@ -319,7 +330,13 @@ export async function importFiles(files: Iterable<File>) {
       emit({ type: 'assetAdded', id, file });
       const kind = asset.hasVideo ? 'video' : 'audio';
       const track = get().timeline.tracks.find((t) => t.kind === kind);
-      if (track) edit((e) => e.appendClip(track.id, id, asset.durationUs));
+      if (track) {
+        edit((e) =>
+          asset.still
+            ? e.appendStillClip(track.id, id, STILL_DURATION_US)
+            : e.appendClip(track.id, id, asset.durationUs),
+        );
+      }
     } catch (error) {
       notify('error', `${file.name}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -336,6 +353,11 @@ export async function relinkAsset(id: string, file: File): Promise<boolean> {
     const asset = await probeAsset(id, file);
     if (previous.hasVideo && !asset.hasVideo) {
       throw new Error('it has no video, but the clips using it need video');
+    }
+    if (Boolean(previous.still) !== Boolean(asset.still)) {
+      throw new Error(
+        previous.still ? 'the clips using it need an image' : 'it’s an image, not a video',
+      );
     }
     assetFiles.set(id, file);
     set((s) => ({ assets: { ...s.assets, [id]: asset } }));

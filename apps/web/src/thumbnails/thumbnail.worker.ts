@@ -8,6 +8,7 @@
  */
 import { CanvasSink } from 'mediabunny';
 import { openAsset } from '../media/asset';
+import { STILL_DURATION_US } from '../media/still';
 import type { FromThumbnailWorker, ToThumbnailWorker } from './protocol';
 import { generationPasses, planStrip, THUMB_HEIGHT } from './strip';
 
@@ -70,7 +71,8 @@ async function drain() {
 }
 
 async function generate(job: Job) {
-  const { video } = await openAsset(job.file);
+  const { video, still } = await openAsset(job.file);
+  if (still) return stillThumbnail(job, still);
   if (!video || job.cancelled) return;
   const durationUs = Math.round((await video.computeDuration()) * 1_000_000);
   const plan = planStrip(durationUs);
@@ -117,4 +119,32 @@ async function generate(job: Job) {
     flush();
   }
   send({ type: 'done', id: job.id, job: job.job });
+}
+
+/** A still image: one thumbnail, shown along the whole clip. */
+async function stillThumbnail(job: Job, still: ImageBitmap) {
+  try {
+    if (job.cancelled) return;
+    const height = THUMB_HEIGHT;
+    const aspect = still.height > 0 ? still.width / still.height : 16 / 9;
+    const width = Math.max(2, Math.round((height * Math.min(4, Math.max(0.25, aspect))) / 2) * 2);
+    send({
+      type: 'plan',
+      id: job.id,
+      job: job.job,
+      intervalUs: STILL_DURATION_US,
+      count: 1,
+      width,
+      height,
+    });
+    const bitmap = await createImageBitmap(still, {
+      resizeWidth: width,
+      resizeHeight: height,
+      resizeQuality: 'medium',
+    });
+    send({ type: 'thumbs', id: job.id, job: job.job, items: [{ index: 0, bitmap }] }, [bitmap]);
+    send({ type: 'done', id: job.id, job: job.job });
+  } finally {
+    still.close();
+  }
 }

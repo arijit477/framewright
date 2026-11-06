@@ -28,11 +28,12 @@ import { streamsFrom } from '../audio/source-stream';
 import { TimelineEngine } from '../engine/engine';
 import { aspectOf } from '../lib/aspect';
 import { openAsset } from '../media/asset';
+import { StillReader } from '../media/still';
 import { drawItems } from '../render/compose';
 import type { Lut } from '../render/lut';
 import type { LutData } from '../render/protocol';
 import { createCompositor } from '../render/compositor';
-import { FrameReader } from '../render/frame-reader';
+import { FrameReader, type SampleReader } from '../render/frame-reader';
 import { ReaderPool } from '../render/reader-pool';
 import type { ExportAsset, ExportDestination, FromExportWorker, ToExportWorker } from './protocol';
 import { openSink, type ExportSink } from './sink';
@@ -94,7 +95,10 @@ async function run(
   const engine = await TimelineEngine.fromJson(projectJson);
   const luts = new Map<string, Lut>(lutList.map(({ id, size, data }) => [id, { size, data }]));
   const videoTracks = new Map<string, InputVideoTrack>();
-  const readers = new ReaderPool((assetId) => {
+  const stills = new Map<string, ImageBitmap>();
+  const readers = new ReaderPool<SampleReader>((assetId) => {
+    const still = stills.get(assetId);
+    if (still) return new StillReader(still);
     const track = videoTracks.get(assetId);
     return track ? new FrameReader(new VideoSampleSink(track)) : null;
   });
@@ -109,8 +113,9 @@ async function run(
 
     // Open every asset the project uses.
     for (const { id, file } of assets) {
-      const { video, audio } = await openAsset(file);
+      const { video, audio, still } = await openAsset(file);
       if (video) videoTracks.set(id, video);
+      if (still) stills.set(id, still);
       if (audio) audioTracks.set(id, audio);
     }
 
@@ -269,6 +274,7 @@ async function run(
   } finally {
     mixer?.dispose();
     await readers.clear();
+    for (const bitmap of stills.values()) bitmap.close();
     engine.free();
   }
 }

@@ -48,7 +48,7 @@ export function Toolbar() {
         <input
           ref={fileInput}
           type="file"
-          accept="video/*,audio/*,.mkv,.mov,.m4a,.flac"
+          accept="video/*,audio/*,image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,.mkv,.mov,.m4a,.flac"
           multiple
           hidden
           aria-label="Media files to import"

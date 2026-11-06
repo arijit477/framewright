@@ -12,7 +12,8 @@ leaves your machine.
 
 ## Features
 
-- Import video (MP4, WebM, MOV, MKV) and audio (MP3, WAV, M4A, OGG, FLAC) by button or drag-and-drop
+- Import video (MP4, WebM, MOV, MKV), audio (MP3, WAV, M4A, OGG, FLAC) and images (PNG, JPEG,
+  WebP, GIF, AVIF, BMP) by button or drag-and-drop; an image lasts as long as you stretch it
 - Audio playback with mixing, per-clip volume (0–200%) and mute, waveforms and a level meter
 - Sample-accurate A/V sync: picture follows the audio clock
 - Export to MP4 (H.264) or WebM (VP9) from 480p to 4K at 24–60 fps, rendered faster than real
