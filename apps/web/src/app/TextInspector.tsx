@@ -31,6 +31,7 @@ const FONTS: { value: FontFamily; label: string }[] = [
   { value: 'serif', label: 'Serif' },
   { value: 'mono', label: 'Mono' },
   { value: 'handwriting', label: 'Handwriting' },
+  { value: 'display', label: 'Display' },
 ];
 const ANIMATIONS: { value: TextAnimation; label: string }[] = [
   { value: 'none', label: 'None' },

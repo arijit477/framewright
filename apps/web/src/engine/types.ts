@@ -119,7 +119,7 @@ export const TRANSFORM_LIMITS = {
   maxRotation: 360,
 } as const;
 
-export type FontFamily = 'sans' | 'serif' | 'mono' | 'handwriting';
+export type FontFamily = 'sans' | 'serif' | 'mono' | 'handwriting' | 'display';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextAnimation = 'none' | 'fade' | 'slide' | 'pop';
 

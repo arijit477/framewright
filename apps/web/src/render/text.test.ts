@@ -128,7 +128,7 @@ describe('layoutText', () => {
 describe('fonts and colours', () => {
   it('builds CSS fonts from the style', () => {
     expect(cssFont(style({ bold: false, italic: true, font: 'serif' }), 40)).toMatch(
-      /^italic 400 40px Georgia/,
+      /^italic 400 40px "Framewright Serif", Georgia/,
     );
   });
 

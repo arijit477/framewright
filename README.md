@@ -21,8 +21,9 @@ leaves your machine.
   4K exports don't need to fit in memory
 - Canvas timeline: scrub, drag clips, trim edges, split, delete, snapping, zoom, with video
   thumbnails (filmstrip) on every clip
-- Text overlays: titles and captions with font, size, colour, background box, alignment,
-  position and fade/slide/pop animations, rendered identically in preview and export
+- Text overlays: titles and captions in five bundled fonts (the same on every machine), with
+  size, colour, background box, alignment, position and fade/slide/pop animations, rendered
+  identically in preview and export
 - Auto captions: speech becomes editable captions on their own track, recognised **on your
   device** by OpenAI's Whisper, on the graphics card when there is one (the model downloads once,
   about 41–136 MB, then works offline; your audio is never uploaded), with each word lighting up as it's spoken. Translate them into

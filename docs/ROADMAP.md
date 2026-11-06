@@ -43,7 +43,7 @@ numbers. Tick items off in PRs; bigger items get a GitHub issue.
 ## Phase 2: Real editing (v0.2.0)
 
 - [x] Text layers: font, size, colour, box, bold/italic, alignment, position, fade/slide/pop in and out
-- [ ] Custom fonts (bundled web fonts available to the export worker)
+- [x] Custom fonts (bundled web fonts available to the export worker)
 - [x] Drag text directly on the preview to position it
 - [x] Transform: position, scale, rotation, opacity; picture-in-picture presets; drag on the preview
 - [x] Keyframes for transforms (animate position, scale, rotation, opacity; easing)

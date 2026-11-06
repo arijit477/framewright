@@ -33,6 +33,8 @@ import { drawItems } from '../render/compose';
 import type { Lut } from '../render/lut';
 import type { LutData } from '../render/protocol';
 import { createCompositor } from '../render/compositor';
+import { textRuns } from '../render/fonts';
+import { threadFonts } from '../render/thread-fonts';
 import { FrameReader, type SampleReader } from '../render/frame-reader';
 import { ReaderPool } from '../render/reader-pool';
 import type { ExportAsset, ExportDestination, FromExportWorker, ToExportWorker } from './protocol';
@@ -60,6 +62,8 @@ interface WorkerScope {
   postMessage(message: FromExportWorker, transfer?: Transferable[]): void;
 }
 const scope = self as unknown as WorkerScope;
+/** Bundled fonts, loaded as titles first use them (kept across exports). */
+const fonts = threadFonts();
 const send = (message: FromExportWorker, transfer: Transferable[] = []) =>
   scope.postMessage(message, transfer);
 
@@ -201,6 +205,7 @@ async function run(
         // An export must show what was asked for: fail rather than keep the background.
         throw new Error(`Background removal isn’t available: ${message}`);
       });
+      await fonts?.ready(textRuns(items)); // titles in their bundled fonts, not a fallback
       compositor.draw(items);
       for (const item of items) if (item.kind === 'video') item.mask?.close();
       await videoSource.add(i / settings.fps, 1 / settings.fps);
