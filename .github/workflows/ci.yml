@@ -47,7 +47,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm --filter @framewright/web test
       - run: pnpm --filter @framewright/web build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -85,7 +85,7 @@ jobs:
             apps/web/e2e/.fixtures/jfk.wav
           key: hf-${{ hashFiles('apps/web/src/captions/protocol.ts', 'apps/web/src/captions/translation.ts', 'apps/web/src/reframe/protocol.ts', 'apps/web/src/segment/matte.ts', 'apps/web/e2e/hf-cache.ts') }}
       - run: pnpm test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
