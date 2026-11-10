@@ -21,7 +21,7 @@
     "@framewright/engine": "link:../../crates/engine/pkg",
     "@huggingface/transformers": "4.3.2",
     "client-zip": "2.5.1",
-    "mediabunny": "^1.65.0",
+    "mediabunny": "^1.65.2",
     "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
